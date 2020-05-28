@@ -76,7 +76,7 @@ zero.omit.mean <- function(x){
 }
 
 Measure   <- "Age standardised incidence"
-DateUntil <- "2020-05-13"
+DateUntil <- "2020-05-28"
 
 # Delete those with no known spatial reference (will add later)
 Brazil_cases_sp <- Brazil_cases[!is.na(Brazil_cases$X), ]
@@ -212,6 +212,8 @@ ui <- navbarPage(
                      # uiOutput("highlight_slider"),
                      
                      htmlOutput("area_selector"),
+                     
+                     htmlOutput("filter_selector"),
                      
                      # pickerInput("region_select", 
                      #             h5("Filter results by region"),
@@ -445,7 +447,7 @@ server <- function(input, output, session) {
             db            <- aggregate(cum_incid ~ Area + X + Y, 
                                        data = Brazil_cases_sp, FUN = max)
             names(db)[4]  <- "outcome"
-            db$size       <- db$outcome
+            db$size       <- sqrt(db$outcome)
             db            <- st_as_sf(db, coords = c("X", "Y"))
             st_crs(db)    <- 4326
             spatial       <- as(db, "Spatial")
@@ -572,8 +574,19 @@ server <- function(input, output, session) {
                     selected = "São Paulo_SP")
     })
     
+    output$filter_selector <- renderUI({#creates County select box object called in ui
+        
+        pickerInput(inputId = "filter_select", #name of input
+                    label = h5("Select your Region"), #label displayed in ui
+                    choices = c("None", 
+                                sort(unique(as.character(myMap@data$Region)))),
+                    selected = "None")
+    })
+    
     output$p1 <- renderPlotly({
         
+        if(input$filter_select!="None"){
+            
             g1 <-  ggplot(area_db1(), aes(x = Days_since_start, 
                                           y = outcome, 
                                           group = Area))  +
@@ -588,19 +601,17 @@ server <- function(input, output, session) {
                 theme(strip.text.x = element_text(size=9)) +
                 theme(plot.title = element_text(size=16)) +
                 geom_line(data = area_db1()[area_db1()$Area != input$area_select &
-                                                area_db1()$Region==input$region_select, ],
+                                                area_db1()$Region==input$filter_select, ],
                           color = "grey") +
                 geom_line(data = area_db1()[area_db1()$Area == input$area_select, ],
                           color = "#ef6f6a", size=0.9) +
-                geom_text(data = area_db1()[area_db1()$Area==
-                                                input$area_select, ], 
+                geom_text(data = area_db1()[area_db1()$Area==input$area_select, ], 
                           aes(label = substr(input$area_select, 1, 
                                              nchar(input$area_select)-3),
                               x = max(Days_since_start)+2,
                               y = max(outcome) * 1.25), 
                           color = "#ef6f6a") +
-                geom_text(data = area_db1()[area_db1()$Region==
-                                                input$region_select, ], 
+                geom_text(data = area_db1()[area_db1()$Region==input$region_select, ], 
                           aes(label = input$region_select, 
                               x = max(Days_since_start),
                               y = max(outcome) * 0.7), 
@@ -608,15 +619,57 @@ server <- function(input, output, session) {
                 ylab(y_label()) +
                 xlim(0,70) +
                 ggtitle("Cumulative cases") +
-                theme(plot.title = element_text(hjust = 0.5))
+                theme(plot.title = element_text(hjust = 0.5)) +
+                scale_y_continuous(trans='log10')
             g1
-        
+            
+        } else{
+            
+            g1 <-  ggplot(area_db1(), aes(x = Days_since_start, 
+                                          y = outcome, 
+                                          group = Area))  +
+                theme_minimal() +
+                xlab("Days since start of the outbreak (>10 cases)") +
+                theme(legend.text=element_text(size=16),
+                      legend.title=element_text(size=14)) +
+                theme(axis.text.x = element_text(size=9),
+                      axis.text.y = element_text(size=9),
+                      axis.title.x = element_text(size=9),
+                      axis.title.y = element_text(size=9)) +
+                theme(strip.text.x = element_text(size=9)) +
+                theme(plot.title = element_text(size=16)) +
+                geom_line(data = area_db1()[area_db1()$Area != input$area_select ,],
+                          color = "grey") +
+                geom_line(data = area_db1()[area_db1()$Area == input$area_select, ],
+                          color = "#ef6f6a", size=0.9) +
+                geom_text(data = area_db1()[area_db1()$Area==input$area_select, ], 
+                          aes(label = substr(input$area_select, 1, 
+                                             nchar(input$area_select)-3),
+                              x = max(Days_since_start)+2,
+                              y = max(outcome) * 1.25), 
+                          color = "#ef6f6a") +
+                geom_text(data = area_db1()[area_db1()$Region==input$region_select, ], 
+                          aes(label = input$region_select, 
+                              x = max(Days_since_start),
+                              y = max(outcome) * 0.7), 
+                          color = "#cfcfcf") +
+                ylab(y_label()) +
+                xlim(0,70) +
+                ggtitle("Cumulative cases") +
+                theme(plot.title = element_text(hjust = 0.5)) +
+                scale_y_continuous(trans='log10')
+            g1
+        }
     })                
     
     reactive_text <- reactive({
         
         w_dat      <- BigStandard[[input$area_select]]
         w_dat$Area <- as.character(w_dat$Area)
+        
+        maxDaysSince <- max(w_dat$Days_since_start[w_dat$Area == LocalArea])
+        w_dat_com    <- w_dat[w_dat$Days_since_start <= maxDaysSince, ]
+        
         timeSUM    <- cbind(aggregate(standardised_cases ~ Days_since_start,
                                       data=w_dat, FUN=quantile, probs = 0.33)[, 2],
                             aggregate(standardised_cases ~ Days_since_start,
