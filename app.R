@@ -20,7 +20,7 @@
 ## ############################################################################
 ##
 ## DESCRIPTION
-## Shiy App for the visualisation of local area COVID19 data
+## Shiny App for the visualisation of local area COVID19 data
 ##
 ## Version control: GitHub
 ## Initially created on 22 April 2020
