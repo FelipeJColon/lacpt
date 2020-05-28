@@ -55,12 +55,13 @@ if(!require(ggpubr)) install.packages("ggpubr", repos = "http://cran.us.r-projec
 if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 if(!require(gsubfn)) install.packages("gsubfn", repos = "http://cran.us.r-project.org")
 if(!require(rgdal)) install.packages("rgdal", repos = "http://cran.us.r-project.org")
+if(!require(scico)) install.packages("scico", repos = "http://cran.us.r-project.org")
 
 # Load global variables
 app_title <- "COVID-19: Local Area Comparison and Projection Tool (LACPT)"
 
 # Load in pre-computed BigWrap dataset
-load(file.path("input_data", "Brazil_BigStandard_results_130520.RData"))
+load(file.path("input_data", "Brazil_BigStandard_results_2020_05_26.RData"))
 
 # Load in latest data for landing page map
 load(file.path("input_data", "Brazil_case_timeseries_clean_FORMAP.RData"))
@@ -137,21 +138,21 @@ ui <- navbarPage(
                  ),
                  
                  absolutePanel(id = "controls", 
-                     top = 190, 
-                     left = 20,
-                     width = 250,
-                     draggable = FALSE,
-                     prettyRadioButtons('outcome_select',
-                                        label=em(h4(uiOutput("outcome_label"),
-                                                    align="center")),
-                                        choices = c('Incidence per 1000 people',
-                                                    'Cases'),
-                                        selected = 'Incidence per 1000 people',
-                                        shape = "round",
-                                        animation = "jelly",
-                                        plain = TRUE,
-                                        bigger = FALSE,
-                                        inline = FALSE)),
+                               top = 150, 
+                               left = 20,
+                               width = 250,
+                               draggable = FALSE,
+                               prettyRadioButtons('outcome_select',
+                                                  label=em(h4(uiOutput("outcome_label"),
+                                                              align="center")),
+                                                  choices = c('Incidence per 1000 people',
+                                                              'Cases'),
+                                                  selected = 'Incidence per 1000 people',
+                                                  shape = "round",
+                                                  animation = "jelly",
+                                                  plain = TRUE,
+                                                  bigger = FALSE,
+                                                  inline = FALSE)),
                  
                  absolutePanel(
                      top = 20, 
@@ -169,7 +170,7 @@ ui <- navbarPage(
                  
                  absolutePanel(id = "controls", 
                                class = "panel panel-default",
-                               top = 320, right = 40, 
+                               top = 320, left = 20, 
                                width = 380, fixed=TRUE,
                                draggable = TRUE, height = "auto",
                                plotOutput("cumulative_plot", height="300px", 
@@ -427,6 +428,9 @@ server <- function(input, output, session) {
             # Rename outcome
             names(db)[4] <- "outcome"
             
+            # Create size for circle markers
+            db$size <- log1p(db$outcome)
+            
             # make sf object
             db <- st_as_sf(db, coords = c("X", "Y"))
             
@@ -441,6 +445,7 @@ server <- function(input, output, session) {
             db            <- aggregate(cum_incid ~ Area + X + Y, 
                                        data = Brazil_cases_sp, FUN = max)
             names(db)[4]  <- "outcome"
+            db$size       <- db$outcome
             db            <- st_as_sf(db, coords = c("X", "Y"))
             st_crs(db)    <- 4326
             spatial       <- as(db, "Spatial")
@@ -450,12 +455,28 @@ server <- function(input, output, session) {
     
     output$map <- renderLeaflet({
         
-        m <- mapview::mapview(spatial_reactive_db(), cex="outcome", 
-                              # zcol="outcome", at=c(0,5,10,15,20,25),
-                              alpha=0.5, col.regions="#ef6f6a",
-                              map.types=c("OpenStreetMap", "CartoDB.Positron"),
-                              legend=FALSE, legend.pos="bottomright")
-        m@map
+        # m <- mapview::mapview(spatial_reactive_db(), cex="outcome",
+        #                       zcol="outcome", at=c(0,5,10,15,20,25),
+        #                       alpha=0.5, col.regions="#ef6f6a",
+        #                       map.types=c("OpenStreetMap", "CartoDB.Positron"),
+        #                       legend=FALSE, legend.pos="bottomright")
+        # m@map
+        
+        pal <- colorNumeric(palette=rev(scico::scico(5, palette="batlow")), 
+                            domain = spatial_reactive_db()$outcome)
+        
+        leaflet(data = spatial_reactive_db(),
+                options = leafletOptions(zoomControl = FALSE)) %>%
+            htmlwidgets::onRender("function(el, x) {
+        L.control.zoom({ position: 'bottomright' }).addTo(this)}") %>% 
+            addTiles() %>%
+            addCircleMarkers(col = ~pal(outcome), opacity = 0.9,
+                             radius = ~size, weight=2,
+                             popup= ~paste(Area, round(outcome, 1), 
+                                           sep=" - ")) %>%
+            addLegend("bottomright",
+                      pal = pal, values = ~outcome,
+                      opacity = 0.7, title = "Scale")
         
     })
     
@@ -536,7 +557,7 @@ server <- function(input, output, session) {
     output$state_selector <- renderUI({ #creates State select box object called in ui
         pickerInput(inputId = "region_select", #name of input
                     label = h5("Select your State"), #label displayed in ui
-                    choices = as.character(myMap@data$Region),
+                    choices = sort(unique(as.character(myMap@data$Region))),
                     selected = "SP") #default choice (not required)
     })
     
