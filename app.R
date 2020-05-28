@@ -78,11 +78,15 @@ zero.omit.mean <- function(x){
 Measure   <- "Age standardised incidence"
 DateUntil <- "2020-05-28"
 
-# Delete those with no known spatial reference (will add later)
-Brazil_cases_sp <- Brazil_cases[!is.na(Brazil_cases$X), ]
+# delete those with no known spatial reference (will add later)
+Brazil_cases_sp = Brazil_cases[!is.na(Brazil_cases$X), ]
 
 # date trim
-Brazil_cases_sp <- Brazil_cases_sp[Brazil_cases_sp$date_end <= DateUntil, ]
+Brazil_cases_sp = Brazil_cases_sp[Brazil_cases_sp$date_end <= DateUntil, ]
+
+# trim to just latest number of cumulative cases / incidence
+Brazil_cases_cum_cases = aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
+Brazil_cases_cum_incid = aggregate(cum_incid ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
 
 # extract dates from cv data
 min_date <- as.Date(min(Brazil_cases_sp$date_end),"%Y-%m-%d")
@@ -424,8 +428,8 @@ server <- function(input, output, session) {
         if (input$outcome_select=="Cases") { 
             
             # trim to just latest number of cumulative cases / incidence
-            db <- aggregate(cum_cases ~ Area + X + Y, 
-                            data = Brazil_cases_sp, FUN = max)
+            db <- aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, 
+                            FUN = max)
             
             # Rename outcome
             names(db)[4] <- "outcome"
@@ -457,13 +461,6 @@ server <- function(input, output, session) {
     
     output$map <- renderLeaflet({
         
-        # m <- mapview::mapview(spatial_reactive_db(), cex="outcome",
-        #                       zcol="outcome", at=c(0,5,10,15,20,25),
-        #                       alpha=0.5, col.regions="#ef6f6a",
-        #                       map.types=c("OpenStreetMap", "CartoDB.Positron"),
-        #                       legend=FALSE, legend.pos="bottomright")
-        # m@map
-        
         pal <- colorNumeric(palette=rev(scico::scico(5, palette="batlow")), 
                             domain = spatial_reactive_db()$outcome)
         
@@ -471,11 +468,11 @@ server <- function(input, output, session) {
                 options = leafletOptions(zoomControl = FALSE)) %>%
             htmlwidgets::onRender("function(el, x) {
         L.control.zoom({ position: 'bottomright' }).addTo(this)}") %>% 
-            addTiles() %>%
             addCircleMarkers(col = ~pal(outcome), opacity = 0.9,
                              radius = ~size, weight=2,
                              popup= ~paste(Area, round(outcome, 1), 
                                            sep=" - ")) %>%
+            addTiles() %>%
             addLegend("bottomright",
                       pal = pal, values = ~outcome,
                       opacity = 0.7, title = "Scale")
@@ -683,15 +680,12 @@ server <- function(input, output, session) {
                                 "standardised_cases"] >= timeSUM[, 2],
                           w_dat[w_dat$Area == input$area_select,
                                 "standardised_cases"] >= timeSUM[, 3])
-        comp_mat_sum <-  apply(comp_mat, 2, median)
+        comp_mat_sum = as.logical(apply(comp_mat, 2, median))
         
-        if(all(comp_mat_sum)){
-            OB_sum <- "above average"
-        } else if(sum(comp_mat_sum) < 3){
-            OB_sum <- "average"
-        } else if(sum(comp_mat_sum) < 2){
-            OB_sum <- "below average"
-        }
+        if(all(comp_mat_sum)){OB_sum = "above average"}
+        if(sum(comp_mat_sum) < 3){OB_sum = "average"}
+        if(sum(comp_mat_sum) < 2){OB_sum = "below average"}
+        
     })
     
     
@@ -714,20 +708,18 @@ server <- function(input, output, session) {
             z_dat$Region <- str_sub(z_dat$Area, start= -2)
             
             # region filtering
-            z_dat <- z_dat %>% 
-                dplyr::filter(Region == str_sub(input$area_select, start= -2))
+            # z_dat <- z_dat %>% 
+                # dplyr::filter(Region == str_sub(input$area_select, start= -2))
             
-            # all interventions
             int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
             int_opts <- int_opts[!int_opts == "Days_since_start"]
             
             
             # loop through interventions aggregating at the area level
-            int_first <- matrix(NA, nrow = length(unique(z_dat$Area)), 
+            int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
                                 ncol = length(int_opts))
             for(i in 1:length(int_opts)){
-                int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), 
-                                           data = z_dat, FUN = min)[, 2]
+                int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), data = z_dat, FUN = min)[, 2]
             }
             
             # remove columsn with all 0s
@@ -735,44 +727,46 @@ server <- function(input, output, session) {
             int_first           <- int_first[, colSums(int_first) > 0]
             
             # reformat into a data frame
-            int_first <- data.frame(Area = sort(unique(z_dat$Area)),
-                                    int_first)
+            int_first = data.frame(Area = sort(unique(z_dat$Area)),
+                                   int_first)
             
-            Int_long <- tidyr::gather(int_first, intervention, time, -Area)
-            
+            # now reshape into long format
+            Int_long <- reshape(int_first,
+                                times = colnames(int_first)[-1],
+                                varying = list(2:ncol(int_first)),
+                                direction = "long")
             
             # formatting
-            Int_long$intervention <- as.character(Int_long$intervention)
-            Int_long$intervention <- gsub("_", " ", Int_long$intervention)
+            Int_long$time = as.character(Int_long$time)
+            Int_long$time = gsub("_", " ", Int_long$time)
             
             # reordering to maintain alphabetical order
-            Int_long %<>% 
-                mutate(intervention=factor(intervention)) %>%
-                arrange(intervention)
+            Int_long$time <- factor(Int_long$time,
+                                    levels = sort(unique(Int_long$time)),
+                                    ordered = TRUE)
             
+            # standardise intervention column name
+            colnames(Int_long)[3] = "Intervention_type"
             
-            # precompute a variable that states whether interventions in the local
-            # area were later or earlier than the mean
-            E_L <- Int_long[Int_long$Area == input$area_select, "time"] >= 
-                aggregate(time ~ intervention, Int_long, FUN = mean)$time
+            # precompute a variable that states whether interventions in the local area were later or earlier than the mean
+            E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >= 
+                aggregate(Intervention_type ~ time, Int_long,
+                          FUN = mean)$Intervention_type
+            Int_long$PlotCol = "black"
             
-            Int_long$PlotCol <- "black"
-            Int_long$PlotCol[Int_long$Area == input$area_select] <- 
-                c("blue", "red")[E_L + 1]
+            Int_long$PlotCol[Int_long$Area == LocalArea] = "red"
             
-            # t <- list(family = "arial")
-            
-            g2 <- ggplot(Int_long, aes(x=time, y=intervention,
+            g2 <- ggplot(Int_long, aes(x=time, y=Intervention_type, 
                                        color = PlotCol)) +
-                geom_boxplot(aes(x=time, y=intervention, color = "black"),
-                             outlier.shape=NA) +
+                geom_boxplot(aes(x=time, y=Intervention_type, color = "black"),
+                             outlier.shape = NA)+
                 geom_jitter(size = 2, alpha = 0.5) +
                 scale_color_manual(labels = c("Other areas", input$area_select), 
                                    values= c("black", "red", "blue")) +
                 guides(color = guide_legend(override.aes = list(linetype = 0, size=5))) +
                 labs(color='Timing of interventions') +
-                ylab("") +
-                xlab("Days since start of the outbreak (>10 cases)") +
+                xlab("") +
+                ylab("Days since start of the outbreak (>10 cases)") +
                 theme_minimal() +
                 ggtitle("Timing of interventions") +
                 theme(plot.title = element_text(hjust = 0.5)) +
@@ -783,51 +777,64 @@ server <- function(input, output, session) {
                       axis.text.y = element_text(size=12),
                       axis.title.x = element_text(size=14),
                       axis.title.y = element_text(size=12)) +
-                theme(strip.text.x = element_text(size =9))
+                theme(strip.text.x = element_text(size =9)) +
+                coord_flip()
             
             
             g2
     })
     
     output$intervention_text <- renderText({ 
-        z_dat        <- BigStandard[[match(input$area_select, names(BigStandard))]]
+        z_dat <- BigStandard[[match(input$area_select, names(BigStandard))]]
+        
         z_dat$Area   <- as.character(z_dat$Area)
         z_dat$Region <- str_sub(z_dat$Area, start= -2)
-        z_dat        <- z_dat %>% 
-            dplyr::filter(Region == str_sub(input$area_select, start= -2))
         
-        # all interventions
-        int_opts  <- colnames(z_dat)[grepl("start", colnames(z_dat))]
-        int_opts  <- int_opts[!int_opts == "Days_since_start"]
-        int_first <- matrix(NA, nrow = length(unique(z_dat$Area)), 
+        # region filtering
+        # z_dat <- z_dat %>% 
+        # dplyr::filter(Region == str_sub(input$area_select, start= -2))
+        
+        int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
+        int_opts <- int_opts[!int_opts == "Days_since_start"]
+        
+        
+        # loop through interventions aggregating at the area level
+        int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
                             ncol = length(int_opts))
         for(i in 1:length(int_opts)){
-            int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), 
-                                       data = z_dat, FUN = min)[, 2]
+            int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), data = z_dat, FUN = min)[, 2]
         }
+        
         # remove columsn with all 0s
         colnames(int_first) <- gsub("_start", "", int_opts)
         int_first           <- int_first[, colSums(int_first) > 0]
         
         # reformat into a data frame
-        int_first <- data.frame(Area = sort(unique(z_dat$Area)),
-                                int_first)
+        int_first = data.frame(Area = sort(unique(z_dat$Area)),
+                               int_first)
         
-        Int_long <- tidyr::gather(int_first, intervention, time, -Area)
+        # now reshape into long format
+        Int_long <- reshape(int_first,
+                            times = colnames(int_first)[-1],
+                            varying = list(2:ncol(int_first)),
+                            direction = "long")
         
         # formatting
-        Int_long$intervention <- as.character(Int_long$intervention)
-        Int_long$intervention <- gsub("_", " ", Int_long$intervention)
+        Int_long$time = as.character(Int_long$time)
+        Int_long$time = gsub("_", " ", Int_long$time)
         
         # reordering to maintain alphabetical order
-        Int_long %<>% 
-            mutate(intervention=factor(intervention)) %>%
-            arrange(intervention)
+        Int_long$time <- factor(Int_long$time,
+                                levels = sort(unique(Int_long$time)),
+                                ordered = TRUE)
         
-        # precompute a variable that states whether interventions in the local
-        # area were later or earlier than the mean
-        E_L <- Int_long[Int_long$Area == input$area_select, "time"] >= 
-            aggregate(time ~ intervention, Int_long, FUN = mean)$time
+        # standardise intervention column name
+        colnames(Int_long)[3] = "Intervention_type"
+        
+        # precompute a variable that states whether interventions in the local area were later or earlier than the mean
+        E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >= 
+            aggregate(Intervention_type ~ time, Int_long,
+                      FUN = mean)$Intervention_type
         
         paste("On average, interventions were put in place ", 
               "<b>", c("earlier", "later")[median(E_L) + 1], "</b>",
