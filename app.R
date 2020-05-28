@@ -61,7 +61,7 @@ if(!require(scico)) install.packages("scico", repos = "http://cran.us.r-project.
 app_title <- "COVID-19: Local Area Comparison and Projection Tool (LACPT)"
 
 # Load in pre-computed BigWrap dataset
-load(file.path("input_data", "Brazil_BigStandard_results_2020_05_26.RData"))
+load(file.path("input_data", "Brazil_BigStandard_results_2020_05_28.RData"))
 
 # Load in latest data for landing page map
 load(file.path("input_data", "Brazil_case_timeseries_clean_FORMAP.RData"))
@@ -563,17 +563,17 @@ server <- function(input, output, session) {
     
     output$area_selector <- renderUI({#creates County select box object called in ui
         
-        areas <- as.character(myMap@data$Text_name[as.character(myMap@data$Region) == input$region_select])
-        data_available = sort(areas[!is.na(areas)])
+        areas <- as.character(d_dat$Area[as.character(d_dat$Region) == 
+                                             input$region_select])
+        data_available <- sort(areas[!is.na(areas)])
         pickerInput(inputId = "area_select", #name of input
                     label = h5("Select your local area"), #label displayed in ui
                     choices = unique(data_available), #calls list of available counties
-                    selected = unique(data_available)[1])
+                    selected = "São Paulo_SP")
     })
     
     output$p1 <- renderPlotly({
         
-        if(as.character(myMap@data$Text_name) %in% input$area_select){
             g1 <-  ggplot(area_db1(), aes(x = Days_since_start, 
                                           y = outcome, 
                                           group = Area))  +
@@ -610,19 +610,6 @@ server <- function(input, output, session) {
                 ggtitle("Cumulative cases") +
                 theme(plot.title = element_text(hjust = 0.5))
             g1
-        } else{
-            
-            text = paste("\n WARNING: \n",
-                         "\n The area selected has less than \n",
-                         " 50 cases and cannot be displayed, \n",
-                         " please select another area from the menu \n")
-            g1 <- ggplot() + 
-                annotate("text", x = 4, y = 25, size=4, label = text) + 
-                theme_bw() +
-                theme(panel.grid.major=element_blank(),
-                      panel.grid.minor=element_blank())
-            g1
-        }
         
     })                
     
@@ -652,12 +639,8 @@ server <- function(input, output, session) {
         } else if(sum(comp_mat_sum) < 2){
             OB_sum <- "below average"
         }
-        # return(OB_sum)
     })
     
-    # output$rawtable <- renderPrint({
-    #     print(head(reactive_text))
-    # })
     
     output$selected_text <- renderText({ 
         paste("After accounting for different population sizes",
@@ -672,8 +655,6 @@ server <- function(input, output, session) {
     
     output$p2 <- renderPlot({
         
-        if(as.character(myMap@data$Text_name) %in% input$area_select){
-            
             z_dat <- BigStandard[[match(input$area_select, names(BigStandard))]]
             
             z_dat$Area   <- as.character(z_dat$Area)
@@ -751,25 +732,8 @@ server <- function(input, output, session) {
                       axis.title.y = element_text(size=12)) +
                 theme(strip.text.x = element_text(size =9))
             
-            # g2 <- plotly_build(g2)
-            # 
-            # for(i in 1:length(g2$x$data)) {
-            #     g2$x$data[[i]]$marker$opacity = 0
-            # }
-            # 
+            
             g2
-        } else {
-            text = paste("\n WARNING: \n",
-                         "\n The area selected has less than \n",
-                         " 50 cases and cannot be displayed, \n",
-                         " please select another area from the menu \n")
-            g2 <- ggplot() + 
-                annotate("text", x = 4, y = 25, size=6, label = text) + 
-                theme_bw() +
-                theme(panel.grid.major=element_blank(),
-                      panel.grid.minor=element_blank())
-            g2
-        }
     })
     
     output$intervention_text <- renderText({ 
