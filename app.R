@@ -49,21 +49,22 @@ if(!require(mapview)) install.packages("mapview", repos = "http://cran.us.r-proj
 if(!require(shiny.i18n)) install.packages("shiny.i18n", repos = "http://cran.us.r-project.org")
 if(!require(markdown)) install.packages("markdown", repos = "http://cran.us.r-project.org")
 if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
-if(!require(sf)) install.packages("sf", repos = "http://cran.us.r-project.org")
 if(!require(ggpubr)) install.packages("ggpubr", repos = "http://cran.us.r-project.org")
 if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 if(!require(gsubfn)) install.packages("gsubfn", repos = "http://cran.us.r-project.org")
 if(!require(rgdal)) install.packages("rgdal", repos = "http://cran.us.r-project.org")
 if(!require(scico)) install.packages("scico", repos = "http://cran.us.r-project.org")
+if(!require(sf)) install.packages("sf", repos = "http://cran.us.r-project.org")
 
 # Load global variables
 app_title <- "COVID-19: Local Area Comparison and Projection Tool (LACPT)"
 
-# Load in pre-computed BigWrap dataset
-load(file.path("input_data", "Brazil_BigStandard_results_2020_05_28.RData"))
+source(file.path("input_data", "OB_standardisation_functions.R"))
 
-# Load in latest data for landing page map
-load(file.path("input_data", "Brazil_case_timeseries_clean_FORMAP.RData"))
+# Load in pre-computed BigWrap dataset
+load(fetch_latest(fileDir = "input_data/", Format = ".RData"))
+
+Brazil_cases <- BigStandard$standardised_incidence
 
 # Load map
 myMap <- rgdal::readOGR("input_data", "Brazil_AD2_shape")
@@ -74,18 +75,21 @@ zero.omit.mean <- function(x){
     if(all(x == 0)){return(0)}else{return(mean(x[x > 0], na.rm = T))}
 }
 
-Measure   <- "Age standardised incidence"
-DateUntil <- "2020-05-28"
+Measure <- "Age standardised incidence"
+DateUntil <- Sys.Date()
 
-# delete those with no known spatial reference (will add later)
-Brazil_cases_sp = Brazil_cases[!is.na(Brazil_cases$X), ]
+Brazil_cases_sp <- Brazil_cases
 
 # date trim
-Brazil_cases_sp = Brazil_cases_sp[Brazil_cases_sp$date_end <= DateUntil, ]
+Brazil_cases_sp <- Brazil_cases_sp[Brazil_cases_sp$date_end <= DateUntil, ]
 
 # trim to just latest number of cumulative cases / incidence
-Brazil_cases_cum_cases = aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
-Brazil_cases_cum_incid = aggregate(cum_incid ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
+Brazil_cases_cum_cases <- aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
+Brazil_cases_cum_incid <- aggregate(standardised_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
+
+# make sf object
+Brazil_cases_cum_cases <- st_as_sf(Brazil_cases_cum_cases, coords = c("X", "Y"))
+Brazil_cases_cum_incid <- st_as_sf(Brazil_cases_cum_incid, coords = c("X", "Y"))
 
 # extract dates from cv data
 min_date <- as.Date(min(Brazil_cases_sp$date_end),"%Y-%m-%d")
@@ -206,115 +210,112 @@ ui <- navbarPage(
     ),
     
     tabPanel(title="Local area comparison",
-             
+
              sidebarLayout(
                  sidebarPanel(
                      width=3,
-                     
+
                      htmlOutput("state_selector"),
                      # uiOutput("highlight_slider"),
-                     
+
                      htmlOutput("area_selector"),
-                     
+
                      htmlOutput("filter_selector"),
-                     
-                     # pickerInput("region_select", 
+
+                     # pickerInput("region_select",
                      #             h5("Filter results by region"),
-                     #             choices  = as.character(regions), 
+                     #             choices  = as.character(regions),
                      #             options  = list(`actions-box` = TRUE),
                      #             selected = "SP",
-                     #             multiple = FALSE), 
-                     # 
+                     #             multiple = FALSE),
+                     #
                      # br(),
-                     pickerInput("outcome_select2", 
-                                 h5("Select a measure"),   
+                     pickerInput("outcome_select2",
+                                 h5("Select a measure"),
                                  choices = c("Incidence", "Deaths"),
                                  # "Hospital bed occupancy",
-                                 # "ITU bed occupancy"), 
+                                 # "ITU bed occupancy"),
                                  selected = c("Incidence"),
                                  multiple = FALSE),
-                     
+
                      uiOutput("outcome_slider"),
-                     
+
                      br(),
-                     
-                     
+
+
                  ),
-                 
+
                  mainPanel(
                      tabsetPanel(
-                         tabPanel("", 
+                         tabPanel("",
                                   plotlyOutput("p1",
                                                height="400px"),
-                                  br(), 
+                                  br(),
                                   htmlOutput("selected_text"),
                                   br(), br(),
                                   # verbatimTextOutput("rawtable"),
                                   plotOutput("p2",
                                              height="400px"),
-                                  br(), 
+                                  br(),
                                   htmlOutput("intervention_text"),
                                   br())
-                         
+
                      )
                  )
              )
     ),
-    
+
     tabPanel(title="Trends",
-             
+
              sidebarLayout(
                  sidebarPanel(
                      width=3,
-                     
+
                      htmlOutput("state_selector2"),
                      # uiOutput("highlight_slider"),
-                     
+
                      htmlOutput("area_selector2"),
-                     
+
                      htmlOutput("outcome_selector2"),
-                     
+
                      htmlOutput("filter_selector2"),
-                     
-                     # uiOutput("area_slider2"), 
+
+                     # uiOutput("area_slider2"),
                  ),
-                 
+
                  mainPanel(
                      tabsetPanel(
-                         tabPanel("", 
+                         tabPanel("",
                                   plotOutput("p3",
-                                             height="400px"),
-                                  br(), 
+                                             height="900px"),
+                                  br(),
                                   htmlOutput("quantile_text"),
-                                  br(), br(),
-                                  plotOutput("p4",
-                                             height="400px"),
-                                  br(), 
+                                  br(),
                                   htmlOutput("quantile_text2"),
-                                  br(), 
-                                  plotOutput("p5",
-                                             height="400px"),
-                                  br(), 
-                                  br()
-                                  
+                                  br(),
+                                  htmlOutput("quantile_text3"),
+                                  br(),
+                                  htmlOutput("quantile_text4"),
+                                  br(), br()
+
                          )
                      )
                  )
              )
     ),
-    
+
     tabPanel(title="Download data",
-             tags$h4("Download local area data"), 
-             pickerInput("area_select3", 
+             tags$h4("Download local area data"),
+             pickerInput("area_select3",
                          h5("Select your local area"),
                          choices  = sort(
-                             as.character(names(BigStandard))), 
+                             as.character(names(BigStandard))),
                          options  = list(`actions-box` = TRUE),
                          selected = "São Paulo_SP",
-                         multiple = FALSE), 
+                         multiple = FALSE),
              numericInput("maxrows",
                           uiOutput("rows_label"), 15),
-             downloadButton("downloadCsv", 
+             downloadButton("downloadCsv",
                             uiOutput("download_label")),
              tags$br(), tags$br(),
              verbatimTextOutput("rawtable"),
@@ -514,60 +515,60 @@ server <- function(input, output, session) {
     
     area_db1 <- reactive({
         req(input$area_select)
-        
+
         x_dat <- BigStandard[[match(input$area_select, names(BigStandard))]]
-        
+
         x_dat$Area   <- as.character(x_dat$Area)
         x_dat$Region <- str_sub(x_dat$Area, start= -2)
-        
-        
-        if(input$outcome_select2=="Hospital bed occupancy") { 
-            x_dat %>% 
+
+
+        if(input$outcome_select2=="Hospital bed occupancy") {
+            x_dat %>%
                 dplyr::rename(outcome=Bed_occ_50) %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
         } else {
-            if(input$outcome_select2=="Deaths") { 
-                x_dat %>% 
+            if(input$outcome_select2=="Deaths") {
+                x_dat %>%
                     dplyr::rename(outcome=Deaths_50)  %>%
                     dplyr::mutate(Region=str_sub(Area, start= -2))
             } else {
                 if(input$outcome_select2=="ITU bed occupancy"){
-                    x_dat %>% 
+                    x_dat %>%
                         dplyr::rename(outcome=ITU_Bed_occ_50)  %>%
                         dplyr::mutate(Region=str_sub(Area, start= -2))
                 } else {
-                    x_dat %>% 
+                    x_dat %>%
                         dplyr::rename(outcome=standardised_cases)  %>%
                         dplyr::mutate(Region=str_sub(Area, start= -2))
                 }
             }
         }
     })
-    
-    
-    
+
+
+
     y_label <- reactive({
-        if(input$outcome_select2=="Hospital bed occupancy") { 
+        if(input$outcome_select2=="Hospital bed occupancy") {
             y_label <- "Standardised hospital beds required per 1,000 people"
-        } else if(input$outcome_select2=="ITU bed occupancy") { 
+        } else if(input$outcome_select2=="ITU bed occupancy") {
             y_label <- "Standardised ITU beds required per 1,000 people"
-        } else if(input$outcome_select2=="Deaths") { 
+        } else if(input$outcome_select2=="Deaths") {
             y_label <- "Standardised deaths per 1,000,000 people"
         } else {
             y_label <- "Standardised cases per 1,000 people"
         }
     })
-    
+
     output$state_selector <- renderUI({ #creates State select box object called in ui
         pickerInput(inputId = "region_select", #name of input
                     label = h5("Select your State"), #label displayed in ui
                     choices = sort(unique(as.character(myMap@data$Region))),
                     selected = "SP") #default choice (not required)
     })
-    
+
     output$area_selector <- renderUI({#creates County select box object called in ui
-        
-        areas <- as.character(d_dat$Area[as.character(d_dat$Region) == 
+
+        areas <- as.character(d_dat$Area[as.character(d_dat$Region) ==
                                              input$region_select])
         data_available <- sort(areas[!is.na(areas)])
         pickerInput(inputId = "area_select", #name of input
@@ -575,26 +576,26 @@ server <- function(input, output, session) {
                     choices = unique(data_available), #calls list of available counties
                     selected = "São Paulo_SP")
     })
-    
+
     output$filter_selector <- renderUI({#creates County select box object called in ui
-        
+
         pickerInput(inputId = "filter_select", #name of input
                     label = h5("Select your Region"), #label displayed in ui
-                    choices = c("None", 
+                    choices = c("None",
                                 sort(unique(as.character(myMap@data$Region)))),
                     selected = "None")
     })
-    
+
     output$state_selector2 <- renderUI({ #creates State select box object called in ui
         pickerInput(inputId = "region_select2", #name of input
                     label = h5("Select your State"), #label displayed in ui
                     choices = sort(unique(as.character(myMap@data$Region))),
                     selected = "SP") #default choice (not required)
     })
-    
+
     output$area_selector2 <- renderUI({#creates County select box object called in ui
-        
-        areas <- as.character(d_dat$Area[as.character(d_dat$Region) == 
+
+        areas <- as.character(d_dat$Area[as.character(d_dat$Region) ==
                                              input$region_select2])
         data_available <- sort(areas[!is.na(areas)])
         pickerInput(inputId = "area_select2", #name of input
@@ -602,30 +603,30 @@ server <- function(input, output, session) {
                     choices = unique(data_available), #calls list of available counties
                     selected = "São Paulo_SP")
     })
-    
+
     output$filter_selector2 <- renderUI({#creates County select box object called in ui
-        
+
         pickerInput(inputId = "filter_select2", #name of input
                     label = h5("Select your Region"), #label displayed in ui
-                    choices = c("National", 
+                    choices = c("National",
                                 sort(unique(as.character(myMap@data$Region)))),
                     selected = "National")
     })
-    
+
     output$outcome_selector2 <- renderUI({#creates County select box object called in ui
-        
+
         pickerInput(inputId = "outcome_select2", #name of input
                     label = h5("Measure"), #label displayed in ui
                     choices = c("Incidence", "Deaths"),
                     selected = "Incidence")
     })
-    
+
     output$p1 <- renderPlotly({
-        
+
         if(input$filter_select!="None"){
-            
-            g1 <-  ggplot(area_db1(), aes(x = Days_since_start, 
-                                          y = outcome, 
+
+            g1 <-  ggplot(area_db1(), aes(x = Days_since_start,
+                                          y = outcome,
                                           group = Area))  +
                 theme_minimal() +
                 xlab("Days since start of the outbreak (>10 cases)") +
@@ -642,16 +643,16 @@ server <- function(input, output, session) {
                           color = "grey") +
                 geom_line(data = area_db1()[area_db1()$Area == input$area_select, ],
                           color = "#ef6f6a", size=0.9) +
-                geom_text(data = area_db1()[area_db1()$Area==input$area_select, ], 
-                          aes(label = substr(input$area_select, 1, 
+                geom_text(data = area_db1()[area_db1()$Area==input$area_select, ],
+                          aes(label = substr(input$area_select, 1,
                                              nchar(input$area_select)-3),
                               x = max(Days_since_start)+2,
-                              y = max(outcome) * 1.25), 
+                              y = max(outcome) * 1.25),
                           color = "#ef6f6a") +
-                geom_text(data = area_db1()[area_db1()$Region==input$region_select, ], 
-                          aes(label = input$region_select, 
+                geom_text(data = area_db1()[area_db1()$Region==input$region_select, ],
+                          aes(label = input$region_select,
                               x = max(Days_since_start),
-                              y = max(outcome) * 0.7), 
+                              y = max(outcome) * 0.7),
                           color = "#cfcfcf") +
                 ylab(y_label()) +
                 xlim(0,70) +
@@ -659,11 +660,11 @@ server <- function(input, output, session) {
                 theme(plot.title = element_text(hjust = 0.5)) +
                 scale_y_continuous(trans='log10')
             g1
-            
+
         } else{
-            
-            g1 <-  ggplot(area_db1(), aes(x = Days_since_start, 
-                                          y = outcome, 
+
+            g1 <-  ggplot(area_db1(), aes(x = Days_since_start,
+                                          y = outcome,
                                           group = Area))  +
                 theme_minimal() +
                 xlab("Days since start of the outbreak (>10 cases)") +
@@ -679,16 +680,16 @@ server <- function(input, output, session) {
                           color = "grey") +
                 geom_line(data = area_db1()[area_db1()$Area == input$area_select, ],
                           color = "#ef6f6a", size=0.9) +
-                geom_text(data = area_db1()[area_db1()$Area==input$area_select, ], 
-                          aes(label = substr(input$area_select, 1, 
+                geom_text(data = area_db1()[area_db1()$Area==input$area_select, ],
+                          aes(label = substr(input$area_select, 1,
                                              nchar(input$area_select)-3),
                               x = max(Days_since_start)+2,
-                              y = max(outcome) * 1.25), 
+                              y = max(outcome) * 1.25),
                           color = "#ef6f6a") +
-                geom_text(data = area_db1()[area_db1()$Region==input$region_select, ], 
-                          aes(label = input$region_select, 
+                geom_text(data = area_db1()[area_db1()$Region==input$region_select, ],
+                          aes(label = input$region_select,
                               x = max(Days_since_start),
-                              y = max(outcome) * 0.7), 
+                              y = max(outcome) * 0.7),
                           color = "#cfcfcf") +
                 ylab(y_label()) +
                 xlim(0,70) +
@@ -697,111 +698,111 @@ server <- function(input, output, session) {
                 scale_y_continuous(trans='log10')
             g1
         }
-    })                
-    
+    })
+
     reactive_text <- reactive({
-        
+
         w_dat      <- BigStandard[[input$area_select]]
         w_dat$Area <- as.character(w_dat$Area)
-        
+
         maxDaysSince <- max(w_dat$Days_since_start[w_dat$Area == LocalArea])
         w_dat_com    <- w_dat[w_dat$Days_since_start <= maxDaysSince, ]
-        
+
         timeSUM    <- cbind(aggregate(standardised_cases ~ Days_since_start,
                                       data=w_dat, FUN=quantile, probs = 0.33)[, 2],
                             aggregate(standardised_cases ~ Days_since_start,
                                       data=w_dat, FUN=quantile, probs = 0.5)[, 2],
-                            aggregate(standardised_cases ~ Days_since_start, 
+                            aggregate(standardised_cases ~ Days_since_start,
                                       data=w_dat, FUN=quantile, probs = 0.66)[, 2])
         # compariosn matrix
-        comp_mat <- cbind(w_dat[w_dat$Area == input$area_select, 
+        comp_mat <- cbind(w_dat[w_dat$Area == input$area_select,
                                 "standardised_cases"] >= timeSUM[, 1],
-                          w_dat[w_dat$Area == input$area_select, 
+                          w_dat[w_dat$Area == input$area_select,
                                 "standardised_cases"] >= timeSUM[, 2],
                           w_dat[w_dat$Area == input$area_select,
                                 "standardised_cases"] >= timeSUM[, 3])
         comp_mat_sum = as.logical(apply(comp_mat, 2, median))
-        
+
         if(all(comp_mat_sum)){OB_sum = "above average"}
         if(sum(comp_mat_sum) < 3){OB_sum = "average"}
         if(sum(comp_mat_sum) < 2){OB_sum = "below average"}
-        
+
     })
-    
-    
-    output$selected_text <- renderText({ 
+
+
+    output$selected_text <- renderText({
         paste("After accounting for different population sizes",
               "and age structures of COVID-19 affected municipalities,",
-              "the outbreak in", 
-              substr(input$area_select, 1, nchar(input$area_select)-3), 
+              "the outbreak in",
+              substr(input$area_select, 1, nchar(input$area_select)-3),
               "is currently tracking", "<b>", reactive_text(), "</b>",
               "compared to other areas in Brazil")
-        
+
     })
-    
-    
+
+
     output$p2 <- renderPlot({
-        
+
         z_dat <- BigStandard[[match(input$area_select, names(BigStandard))]]
-        
+
         z_dat$Area   <- as.character(z_dat$Area)
         z_dat$Region <- str_sub(z_dat$Area, start= -2)
-        
+
         # region filtering
-        # z_dat <- z_dat %>% 
+        # z_dat <- z_dat %>%
         # dplyr::filter(Region == str_sub(input$area_select, start= -2))
-        
+
         int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
         int_opts <- int_opts[!int_opts == "Days_since_start"]
-        
-        
+
+
         # loop through interventions aggregating at the area level
         int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
                             ncol = length(int_opts))
         for(i in 1:length(int_opts)){
             int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), data = z_dat, FUN = min)[, 2]
         }
-        
+
         # remove columsn with all 0s
         colnames(int_first) <- gsub("_start", "", int_opts)
         int_first           <- int_first[, colSums(int_first) > 0]
-        
+
         # reformat into a data frame
         int_first = data.frame(Area = sort(unique(z_dat$Area)),
                                int_first)
-        
+
         # now reshape into long format
         Int_long <- reshape(int_first,
                             times = colnames(int_first)[-1],
                             varying = list(2:ncol(int_first)),
                             direction = "long")
-        
+
         # formatting
         Int_long$time = as.character(Int_long$time)
         Int_long$time = gsub("_", " ", Int_long$time)
-        
+
         # reordering to maintain alphabetical order
         Int_long$time <- factor(Int_long$time,
                                 levels = sort(unique(Int_long$time)),
                                 ordered = TRUE)
-        
+
         # standardise intervention column name
         colnames(Int_long)[3] = "Intervention_type"
-        
+
         # precompute a variable that states whether interventions in the local area were later or earlier than the mean
-        E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >= 
+        E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >=
             aggregate(Intervention_type ~ time, Int_long,
                       FUN = mean)$Intervention_type
         Int_long$PlotCol = "black"
-        
+
         Int_long$PlotCol[Int_long$Area == LocalArea] = "red"
-        
-        g2 <- ggplot(Int_long, aes(x=time, y=Intervention_type, 
+
+        g2 <- ggplot(Int_long, aes(x=time, y=Intervention_type,
                                    color = PlotCol)) +
             geom_boxplot(aes(x=time, y=Intervention_type, color = "black"),
                          outlier.shape = NA)+
             geom_jitter(size = 2, alpha = 0.5) +
-            scale_color_manual(labels = c("Other areas", input$area_select), 
+            scale_color_manual(labels = c("Other areas", input$area_select),
                                values= c("black", "red", "blue")) +
             guides(color = guide_legend(override.aes = list(linetype = 0, size=5))) +
             labs(color='Timing of interventions') +
@@ -819,164 +820,162 @@ server <- function(input, output, session) {
                   axis.title.y = element_text(size=12)) +
             theme(strip.text.x = element_text(size =9)) +
             coord_flip()
-        
-        
+
+
         g2
     })
-    
-    output$intervention_text <- renderText({ 
+
+    output$intervention_text <- renderText({
         z_dat <- BigStandard[[match(input$area_select, names(BigStandard))]]
-        
+
         z_dat$Area   <- as.character(z_dat$Area)
         z_dat$Region <- str_sub(z_dat$Area, start= -2)
-        
-        # region filtering
-        # z_dat <- z_dat %>% 
-        # dplyr::filter(Region == str_sub(input$area_select, start= -2))
-        
+
         int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
         int_opts <- int_opts[!int_opts == "Days_since_start"]
-        
-        
+
+
         # loop through interventions aggregating at the area level
         int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
                             ncol = length(int_opts))
         for(i in 1:length(int_opts)){
             int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), data = z_dat, FUN = min)[, 2]
         }
-        
+
         # remove columsn with all 0s
         colnames(int_first) <- gsub("_start", "", int_opts)
         int_first           <- int_first[, colSums(int_first) > 0]
-        
+
         # reformat into a data frame
         int_first = data.frame(Area = sort(unique(z_dat$Area)),
                                int_first)
-        
+
         # now reshape into long format
         Int_long <- reshape(int_first,
                             times = colnames(int_first)[-1],
                             varying = list(2:ncol(int_first)),
                             direction = "long")
-        
+
         # formatting
         Int_long$time = as.character(Int_long$time)
         Int_long$time = gsub("_", " ", Int_long$time)
-        
+
         # reordering to maintain alphabetical order
         Int_long$time <- factor(Int_long$time,
                                 levels = sort(unique(Int_long$time)),
                                 ordered = TRUE)
-        
+
         # standardise intervention column name
         colnames(Int_long)[3] = "Intervention_type"
-        
-        # precompute a variable that states whether interventions in the local area were later or earlier than the mean
-        E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >= 
+
+        # precompute a variable that states whether interventions in the
+        # local area were later or earlier than the mean
+        E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >=
             aggregate(Intervention_type ~ time, Int_long,
                       FUN = mean)$Intervention_type
-        
-        paste("On average, interventions were put in place ", 
+
+        paste("On average, interventions were put in place ",
               "<b>", c("earlier", "later")[median(E_L) + 1], "</b>",
               " in the outbreak in",
-              substr(input$area_select, 1, nchar(input$area_select)-3), 
+              substr(input$area_select, 1, nchar(input$area_select)-3),
               "compared to other municipalities in Brazil")
     })
-    
+
     area_db2 <- reactive({
-        
+
         s_dat        <- BigStandard[[input$area_select2]]
         s_dat$Area   <- as.character(s_dat$Area)
         s_dat$Region <- str_sub(s_dat$Area, start= -2)
-        
+
         if(input$filter_select2 != "National"){
             trend_s_dat <- s_dat[s_dat$Region == input$filter_select2, ]
         }else{
             trend_s_dat <- s_dat
         }
-        
+
         popdenDF       <- aggregate(popden ~ Area, max, data=trend_s_dat)
-        
+
         popdenQuartile <- quantile(popdenDF$popden, probs=(0:4)/4)
-        
-        popdenDF$popdenQuartile <- cut(popdenDF$popden, popdenQuartile, 
+
+        popdenDF$popdenQuartile <- cut(popdenDF$popden, popdenQuartile,
                                        include.lowest=TRUE)
-        
+
         Q_labels    <- paste0("Q", 1:4)
         Q_labels[1] <- paste0(Q_labels[1], " (Lowest density)")
         Q_labels[4] <- paste0(Q_labels[4], " (Highest density)")
-        
+
         levels(popdenDF$popdenQuartile) <- Q_labels
         popdenDF$popdenQuartile         <-as.character(popdenDF$popdenQuartile)
-        
+
         SDIDF <- aggregate(SDI ~ Area, max, data=trend_s_dat)
-        
+
         SDIQuartile <- quantile(SDIDF$SDI, probs=(0:4)/4)
-        
+
         SDIDF$SDIQuartile <- cut(SDIDF$SDI, SDIQuartile, include.lowest=TRUE)
-        
+
         Q_labels    <- paste0("Q", 1:4)
         Q_labels[1] <- paste0(Q_labels[1], " (Least developed)")
         Q_labels[4] <- paste0(Q_labels[4], " (Most developed)")
-        
+
         levels(SDIDF$SDIQuartile) <- Q_labels
         SDIDF$SDIQuartile <- as.character(SDIDF$SDIQuartile)
-        
+
         PipedDF<-aggregate(Piped_water ~ Area, max, data=trend_s_dat)
-        
+
         PipedQuartile<-quantile(PipedDF$Piped_water, probs=(0:4)/4)
-        
-        PipedDF$PipedQuartile <- cut(PipedDF$Piped_water, PipedQuartile, 
+
+        PipedDF$PipedQuartile <- cut(PipedDF$Piped_water, PipedQuartile,
                                      include.lowest=TRUE)
         Q_labels <- paste0("Q", 1:4)
         levels(PipedDF$PipedQuartile) <- Q_labels
         PipedDF$PipedQuartile<-as.character(PipedDF$PipedQuartile)
-        
+
         SewDF<-aggregate(Sewage_or_septic ~ Area, max, data=trend_s_dat)
-        
+
         SewQuartile<-quantile(SewDF$Sewage_or_septic, probs=(0:4)/4)
-        SewDF$SewQuartile <- cut(SewDF$Sewage_or_septic, SewQuartile, 
+        SewDF$SewQuartile <- cut(SewDF$Sewage_or_septic, SewQuartile,
                                  include.lowest=TRUE)
         Q_labels <- paste0("Q", 1:4)
         levels(SewDF$SewQuartile) <- Q_labels
         SewDF$SewQuartile<-as.character(SewDF$SewQuartile)
-        
-        AreaProfilesDF<-merge(x=trend_s_dat, y=popdenDF, by="Area", 
+
+        AreaProfilesDF<-merge(x=trend_s_dat, y=popdenDF, by="Area",
                               all.x=T, all.y=F)
-        AreaProfilesDF<-merge(x=AreaProfilesDF, y=SDIDF, by="Area", 
+        AreaProfilesDF<-merge(x=AreaProfilesDF, y=SDIDF, by="Area",
                               all.x=T, all.y=F)
-        AreaProfilesDF<-merge(x=AreaProfilesDF, y=PipedDF, by="Area", 
+        AreaProfilesDF<-merge(x=AreaProfilesDF, y=PipedDF, by="Area",
                               all.x=T, all.y=F)
         AreaProfilesDF<-merge(x=AreaProfilesDF, y=SewDF, by="Area",
                               all.x=T, all.y=F)
-        
+
         TimePointsVector <- as.numeric(
             names(table(trend_s_dat$Days_since_start %/% 10)))
         TimePointsVector <- 10*TimePointsVector[TimePointsVector>0]
-        
-        QuartileTimeDF <- AreaProfilesDF[AreaProfilesDF$Days_since_start %in% 
+
+        QuartileTimeDF <- AreaProfilesDF[AreaProfilesDF$Days_since_start %in%
                                              TimePointsVector,
-                                         c("Area", "Days_since_start", 
-                                           "standardised_cases", 
-                                           "popdenQuartile", 
-                                           "SDIQuartile", 
+                                         c("Area", "Days_since_start",
+                                           "standardised_cases",
+                                           "popdenQuartile",
+                                           "SDIQuartile",
                                            "PipedQuartile",
                                            "SewQuartile")]
-        
+
         bp_ofile <- list(of1=QuartileTimeDF,
                          of2=SDIQuartile,
-                         of3=PipedQuartile)
+                         of3=PipedQuartile,
+                         of4=SewQuartile)
     })
-    
+
     output$p3 <- renderPlot({
-    
-        g3 <- ggplot(area_db2()$of1, 
-                     aes(x=factor(Days_since_start), 
-                         y=standardised_cases, 
-                         group=interaction(factor(Days_since_start), 
-                                           factor(popdenQuartile)))) + 
+
+        g3 <- ggplot(area_db2()$of1,
+                     aes(x=factor(Days_since_start),
+                         y=standardised_cases,
+                         group=interaction(factor(Days_since_start),
+                                           factor(popdenQuartile)))) +
             geom_boxplot(aes(fill=factor(popdenQuartile)), outlier.shape=NA) +
-            labs(x = "Days since start", 
+            labs(x = "Days since start",
                  y = "Incidence per 1,000 people (log scale, outliers omitted") +
             scale_y_log10() +
             theme_minimal() +
@@ -991,30 +990,111 @@ server <- function(input, output, session) {
                   axis.text.y = element_text(size=12),
                   axis.title.x = element_text(size=16),
                   axis.title.y = element_text(size=16)) +
-            theme(strip.text.x = element_text(size = 14)) 
-        g3
+            theme(strip.text.x = element_text(size = 14))
+
+        g4 <- ggplot(area_db2()$of1,
+                     aes(x=factor(Days_since_start),
+                         y=standardised_cases,
+                         group=interaction(factor(Days_since_start),
+                                           factor(SDIQuartile)))) +
+            geom_boxplot(aes(fill=factor(SDIQuartile)), outlier.shape=NA) +
+            labs(x = "Days since start",
+                 y = "Incidence per 1,000 people (log scale, outliers omitted") +
+            scale_fill_tableau(
+                name="Quartile of SDI: Socio \nDemographic Index,\na composite relative \nmeasure of development \nranging from 0 (lowest) \nto 1 (highest).",
+                labels=paste0(round(area_db2()$of2[1:4],2), "-",
+                              round(area_db2()$of2[2:5],2)),
+                palette="Superfishel Stone") +
+            theme_minimal() +
+            ggtitle("Socio Demographic Index quantiles") +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(plot.title = element_text(size=22)) +
+            theme(legend.text=element_text(size=12),
+                  legend.title=element_text(size=14)) +
+            theme(axis.text.x = element_text(size=12),
+                  axis.text.y = element_text(size=12),
+                  axis.title.x = element_text(size=16),
+                  axis.title.y = element_text(size=16)) +
+            theme(strip.text.x = element_text(size = 14)) +
+            scale_y_log10()
+
+        g5 <- ggplot(area_db2()$of1,
+                     aes(x=factor(Days_since_start),
+                         y=standardised_cases,
+                         group=interaction(factor(Days_since_start),
+                                           factor(PipedQuartile)))) +
+            geom_boxplot(aes(fill=factor(PipedQuartile)), outlier.shape=NA) +
+            labs(x = "Days since start",
+                 y = "Incidence per 1,000 people (log scale, outliers omitted") +
+            scale_fill_tableau(
+                name="Quartile of proportion \nof households with \npiped water ",
+                labels=paste0(round(area_db2()$of3[1:4],2), "-",
+                              round(area_db2()$of3[2:5],2)),
+                palette="Superfishel Stone") +
+            scale_y_log10() +
+            theme_minimal() +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(plot.title = element_text(size=22)) +
+            theme(legend.text=element_text(size=12),
+                  legend.title=element_text(size=14)) +
+            theme(axis.text.x = element_text(size=12),
+                  axis.text.y = element_text(size=12),
+                  axis.title.x = element_text(size=16),
+                  axis.title.y = element_text(size=16)) +
+            theme(strip.text.x = element_text(size = 14))
+
+        g6 <- ggplot(area_db2()$of1,
+                     aes(x=factor(Days_since_start),
+                         y=standardised_cases,
+                         group=interaction(factor(Days_since_start),
+                                           factor(SewQuartile)))) +
+            geom_boxplot(aes(fill=factor(SewQuartile)), outlier.shape=NA) +
+            labs(x = "Days since start",
+                 y = "Incidence per 1,000 people (log scale, outliers omitted") +
+            scale_fill_discrete(
+                name="Quartile of proportion of \nhouseholds connected \nto the sewage network \nor with a septic tank ",
+                labels=paste0(round(area_db2()$of4[1:4],2), "-",
+                              round(area_db2()$of4[2:5],2))) +
+            scale_y_log10() +
+            theme_minimal() +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(plot.title = element_text(size=22)) +
+            theme(legend.text=element_text(size=12),
+                  legend.title=element_text(size=14)) +
+            theme(axis.text.x = element_text(size=12),
+                  axis.text.y = element_text(size=12),
+                  axis.title.x = element_text(size=16),
+                  axis.title.y = element_text(size=16)) +
+            theme(strip.text.x = element_text(size = 14))
+
+        ggarrange(g3, g4, g5, g6,
+                  labels=c("A", "B", "C", "D"),
+                  ncol=2, nrow=2, label.x=-0.03,
+                  font.label=list(size=18, face="bold"),
+                  common.legend=TRUE, legend="bottom")
+
     })
-    
-    output$quantile_text <- renderText({ 
+
+    output$quantile_text <- renderText({
         paste( "Currently there is no strong trend between population",
                "density and incidence of COVID-19 with comparable incidence",
                "rates between urban and rural areas.")
-        
+
     })
-    
-    
+
+
     output$p4 <- renderPlot({
-        
-        g4 <- ggplot(area_db2()$of1, 
-                     aes(x=factor(Days_since_start), 
-                         y=standardised_cases, 
-                         group=interaction(factor(Days_since_start), 
-                                           factor(SDIQuartile)))) + 
+
+        g4 <- ggplot(area_db2()$of1,
+                     aes(x=factor(Days_since_start),
+                         y=standardised_cases,
+                         group=interaction(factor(Days_since_start),
+                                           factor(SDIQuartile)))) +
             geom_boxplot(aes(fill=factor(SDIQuartile)), outlier.shape=NA) +
-            labs(x = "Days since start", 
+            labs(x = "Days since start",
                  y = "Incidence per 1,000 people (log scale, outliers omitted") +
             scale_fill_tableau(
-                name="Quartile of SDI: Socio \nDemographic Index,\na composite relative \nmeasure of development \nranging from 0 (lowest) \nto 1 (highest).", 
+                name="Quartile of SDI: Socio \nDemographic Index,\na composite relative \nmeasure of development \nranging from 0 (lowest) \nto 1 (highest).",
                 labels=paste0(round(area_db2()$of2[1:4],2), "-",
                               round(area_db2()$of2[2:5],2)),
                 palette="Superfishel Stone") +
@@ -1032,20 +1112,28 @@ server <- function(input, output, session) {
             scale_y_log10()
         g4
     })
-    
+
+    output$quantile_text2 <- renderText({
+        paste( "Ccurrently there is a slight non-significant trend",
+               "towards lower incidence rates in higher Socio-Demographic",
+               "Index areas, however these differences appear to reduce",
+               "as the outbreak progresses.")
+
+    })
+
     output$p5 <- renderPlot({
 
-        g5 <- ggplot(area_db2()$of1, 
-                     aes(x=factor(Days_since_start), 
-                         y=standardised_cases, 
-                         group=interaction(factor(Days_since_start), 
-                                           factor(PipedQuartile)))) + 
+        g5 <- ggplot(area_db2()$of1,
+                     aes(x=factor(Days_since_start),
+                         y=standardised_cases,
+                         group=interaction(factor(Days_since_start),
+                                           factor(PipedQuartile)))) +
             geom_boxplot(aes(fill=factor(PipedQuartile)), outlier.shape=NA) +
             labs(x = "Days since start",
                  y = "Incidence per 1,000 people (log scale, outliers omitted") +
             scale_fill_tableau(
-                name="Quartile of proportion \nof households with \npiped water ", 
-                labels=paste0(round(area_db2()$of3[1:4],2), "-", 
+                name="Quartile of proportion \nof households with \npiped water ",
+                labels=paste0(round(area_db2()$of3[1:4],2), "-",
                               round(area_db2()$of3[2:5],2)),
                 palette="Superfishel Stone") +
             scale_y_log10() +
@@ -1058,60 +1146,98 @@ server <- function(input, output, session) {
                   axis.text.y = element_text(size=12),
                   axis.title.x = element_text(size=16),
                   axis.title.y = element_text(size=16)) +
-            theme(strip.text.x = element_text(size = 14)) 
-        
+            theme(strip.text.x = element_text(size = 14))
+
         g5
-        
+
     })
-    
-    
-    output$quantile_text2 <- renderText({ 
-        paste("Currently there is a slight non-significant trend towards",
-              "lower incidence rates in higher Socio-Demographic Index areas;",
-              "however, these differences appear to reduce as the outbreak",
-              "progresses")
-        
+
+    output$quantile_text3 <- renderText({
+        paste("Currently there is a slight non-significant trend",
+        "towards lower incidence rates in areas that have higher",
+        "access to piped waters.")
+
     })
-    
+
+    output$p6 <- renderPlot({
+
+        g6 <- ggplot(area_db2()$of1,
+                        aes(x=factor(Days_since_start),
+                            y=standardised_cases,
+                            group=interaction(factor(Days_since_start),
+                                              factor(SewQuartile)))) +
+            geom_boxplot(aes(fill=factor(SewQuartile)), outlier.shape=NA) +
+            labs(x = "Days since start",
+                 y = "Incidence per 1,000 people (log scale, outliers omitted") +
+            scale_fill_discrete(
+                name="Quartile of proportion of \nhouseholds connected \nto the sewage network \nor with a septic tank ",
+                labels=paste0(round(area_db2()$of4[1:4],2), "-",
+                              round(area_db2()$of4[2:5],2))) +
+            scale_y_log10() +
+            theme_minimal() +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(plot.title = element_text(size=22)) +
+            theme(legend.text=element_text(size=12),
+                  legend.title=element_text(size=14)) +
+            theme(axis.text.x = element_text(size=12),
+                  axis.text.y = element_text(size=12),
+                  axis.title.x = element_text(size=16),
+                  axis.title.y = element_text(size=16)) +
+            theme(strip.text.x = element_text(size = 14))
+
+        g6
+
+    })
+
+    output$quantile_text4 <- renderText({
+
+        if(input$filter_select2 == "National"){
+        paste("Ccurrently there is a slight non-significant trend towards",
+        "lower incidence rates in areas that have higher access connection",
+        "to the sewage network (or septic tank), particularly in the early",
+        "stages of the epidemic.")
+        }
+    })
+
     output$rows_label = renderText({
         switch(input$language, "EN"="Number of rows to show",
-               "ES"="Número de filas a mostrar") 
+               "ES"="Número de filas a mostrar")
     })
-    
+
     out_dat <- reactive({
         out_data        <- BigStandard[[input$area_select3]]
         names(out_data) <- tolower(names(out_data))
         out_data
     })
-    
+
     output$rawtable <- renderPrint({
         orig <- options(width = 1000)
         print(head(out_dat(), n=input$maxrows), row.names = FALSE)
         options(orig)
     })
-    
+
     area_db3 <- reactive({
         unwanted_array <- list('Š'='S', 'š'='s', 'Ž'='Z', 'ž'='z', 'À'='A',
-                               'Á'='A', 'Â'='A', 'Ã'='A', 'Ä'='A', 'Å'='A', 
-                               'Æ'='A', 'Ç'='C', 'È'='E', 'É'='E', 'Ê'='E', 
-                               'Ë'='E', 'Ì'='I', 'Í'='I', 'Î'='I', 'Ï'='I', 
-                               'Ñ'='N', 'Ò'='O', 'Ó'='O', 'Ô'='O', 'Õ'='O', 
-                               'Ö'='O', 'Ø'='O', 'Ù'='U', 'Ú'='U', 'Û'='U', 
+                               'Á'='A', 'Â'='A', 'Ã'='A', 'Ä'='A', 'Å'='A',
+                               'Æ'='A', 'Ç'='C', 'È'='E', 'É'='E', 'Ê'='E',
+                               'Ë'='E', 'Ì'='I', 'Í'='I', 'Î'='I', 'Ï'='I',
+                               'Ñ'='N', 'Ò'='O', 'Ó'='O', 'Ô'='O', 'Õ'='O',
+                               'Ö'='O', 'Ø'='O', 'Ù'='U', 'Ú'='U', 'Û'='U',
                                'Ü'='U', 'Ý'='Y', 'Þ'='B', 'ß'='Ss', 'à'='a',
-                               'á'='a', 'â'='a', 'ã'='a', 'ä'='a', 'å'='a', 
+                               'á'='a', 'â'='a', 'ã'='a', 'ä'='a', 'å'='a',
                                'æ'='a', 'ç'='c', 'è'='e', 'é'='e', 'ê'='e',
-                               'ë'='e', 'ì'='i', 'í'='i', 'î'='i', 'ï'='i', 
-                               'ð'='o', 'ñ'='n', 'ò'='o', 'ó'='o', 'ô'='o', 
+                               'ë'='e', 'ì'='i', 'í'='i', 'î'='i', 'ï'='i',
+                               'ð'='o', 'ñ'='n', 'ò'='o', 'ó'='o', 'ô'='o',
                                'õ'='o', 'ö'='o', 'ø'='o', 'ù'='u', 'ú'='u',
                                'û'='u', 'ý'='y', 'ý'='y', 'þ'='b', 'ÿ'='y')
-        
+
         area <- gsub(" ", "_", tolower(gsubfn(paste(names(unwanted_array),collapse='|'),
                                               unwanted_array, input$area_select3)))
-        
+
     })
-    
+
     output$downloadCsv <- downloadHandler(
-        
+
         filename = function() {
             paste0("data_covid19_", area_db3(), ".csv")
         },
@@ -1119,10 +1245,10 @@ server <- function(input, output, session) {
             write.csv(out_dat(), file)
         }
     )
-    
+
     output$download_label = renderText({
         switch(input$language, "EN"="Download data as CSV",
-               "PR"="Descargar datos en formato CSV") 
+               "PR"="Descargar datos en formato CSV")
     })
 }
 
