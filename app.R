@@ -851,20 +851,23 @@ server <- function(input, output, session) {
         colnames(Int_long)[3] = "Intervention_type"
         
         # precompute a variable that states whether interventions in the local area were later or earlier than the mean
-        E_L <- Int_long[Int_long$Area == LocalArea, "Intervention_type"] >=
+        E_L <- Int_long[Int_long$Area == input$area_select, 
+                        "Intervention_type"] >=
             aggregate(Intervention_type ~ time, Int_long,
                       FUN = mean)$Intervention_type
         Int_long$PlotCol = "black"
         
-        Int_long$PlotCol[Int_long$Area == LocalArea] = "red"
+        Int_long$PlotCol[Int_long$Area == input$area_select] = "red"
         
-        g2 <- ggplot(Int_long, aes(x=time, y=Intervention_type,
-                                   color = PlotCol)) +
+        g2 <- ggplot(Int_long, aes(x=time, y=Intervention_type)) +
             geom_boxplot(aes(x=time, y=Intervention_type, color = "black"),
-                         outlier.shape = NA)+
+                         outlier.shape = NA) +
             geom_jitter(size = 2, alpha = 0.5) +
-            scale_color_manual(labels = c("Other areas", input$area_select),
-                               values= c("black", "red", "blue")) +
+            geom_point(aes(x=time, y=Intervention_type, color = "black"),
+                       data = Int_long[Int_long$Area == input$area_select, ],
+                       color = rgb(1,0,0,0.5), size=3) +
+            scale_color_manual(labels = c("Other areas", input$area_select), 
+                               values= c("black", "red")) +
             guides(color = guide_legend(override.aes = list(linetype = 0, size=5))) +
             labs(color='Timing of interventions') +
             xlab("") +
