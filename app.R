@@ -868,10 +868,12 @@ server <- function(input, output, session) {
                        color = rgb(1,0,0,0.5), size=3) +
             scale_color_manual(labels = c("Other areas", input$area_select), 
                                values= c("black", "red")) +
-            guides(color = guide_legend(override.aes = list(linetype = 0, size=5))) +
+            guides(color = guide_legend(override.aes = list(linetype = 0, 
+                                                            size=5))) +
             labs(color='Timing of interventions') +
             xlab("") +
             ylab("Days since start of the outbreak (>10 cases)") +
+            ylim(0, 60) +
             theme_minimal() +
             ggtitle("Timing of interventions") +
             theme(plot.title = element_text(hjust = 0.5)) +
