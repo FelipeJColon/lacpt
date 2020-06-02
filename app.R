@@ -267,11 +267,11 @@ ui <- navbarPage(
                      htmlOutput("state_selector2"),
                      # uiOutput("highlight_slider"),
                      
-                     htmlOutput("area_selector2"),
+                     # htmlOutput("area_selector2"),
                      
-                     htmlOutput("outcome_selector2"),
+                     # htmlOutput("outcome_selector2"),
                      
-                     htmlOutput("filter_selector2"),
+                     # htmlOutput("filter_selector2"),
                      
                      # uiOutput("area_slider2"),
                  ),
@@ -651,38 +651,9 @@ server <- function(input, output, session) {
                     selected = "SP") #default choice (not required)
     })
     
-    output$area_selector2 <- renderUI({#creates County select box object called in ui
-        
-        areas <- as.character(d_dat$Area[as.character(d_dat$Region) ==
-                                             input$region_select2])
-        data_available <- sort(areas[!is.na(areas)])
-        pickerInput(inputId = "area_select2", #name of input
-                    label = h5("Select your Municipality"), #label displayed in ui
-                    choices = unique(data_available), #calls list of available counties
-                    selected = "São Paulo_SP")
-    })
-    
-    output$filter_selector2 <- renderUI({#creates County select box object called in ui
-        
-        pickerInput(inputId = "filter_select2", #name of input
-                    label = h5("Select your Region"), #label displayed in ui
-                    choices = c("National",
-                                sort(unique(as.character(myMap@data$Region)))),
-                    selected = "National")
-    })
-    
-    output$outcome_selector2 <- renderUI({#creates County select box object called in ui
-        
-        pickerInput(inputId = "outcome_selectx", #name of input
-                    label = h5("Measure"), #label displayed in ui
-                    choices = c("Incidence", "Deaths"),
-                    selected = "Incidence")
-    })
     
     output$p1 <- renderPlotly({
         
-        # if(input$filter_select!="None"){
-        #     
         g1 <-  ggplot(area_db1()$of1, aes(x = Days_since_start,
                                           y = outcome,
                                           group = Area))  +
@@ -725,78 +696,10 @@ server <- function(input, output, session) {
             scale_y_continuous(trans='log10')
         g1
         
-        # } else{
-        #     
-        #     g1 <-  ggplot(area_db1(), aes(x = Days_since_start,
-        #                                   y = outcome,
-        #                                   group = Area))  +
-        #         theme_minimal() +
-        #         xlab("Days since start of the outbreak (>10 cases)") +
-        #         theme(legend.text=element_text(size=16),
-        #               legend.title=element_text(size=14)) +
-        #         theme(axis.text.x = element_text(size=9),
-        #               axis.text.y = element_text(size=9),
-        #               axis.title.x = element_text(size=9),
-        #               axis.title.y = element_text(size=9)) +
-        #         theme(strip.text.x = element_text(size=9)) +
-        #         theme(plot.title = element_text(size=16)) +
-        #         geom_line(data = area_db1()[area_db1()$Area != input$area_select ,],
-        #                   color = "grey") +
-        #         geom_line(data = area_db1()[area_db1()$Area == input$area_select, ],
-        #                   color = "#ef6f6a", size=0.9) +
-        #         geom_text(data = area_db1()[area_db1()$Area==input$area_select, ],
-        #                   aes(label = substr(input$area_select, 1,
-        #                                      nchar(input$area_select)-3),
-        #                       x = max(Days_since_start)+2,
-        #                       y = max(outcome) * 1.25),
-        #                   color = "#ef6f6a") +
-        #         geom_text(data = area_db1()[area_db1()$Region==input$region_select, ],
-        #                   aes(label = "Other areas",
-        #                       x = max(Days_since_start),
-        #                       y = max(outcome) * 0.7),
-        #                   color = "#5c6068") +
-        #         ylab(y_label()) +
-        #         xlim(0,70) +
-        #         ggtitle("Cumulative cases") +
-        #         theme(plot.title = element_text(hjust = 0.5)) +
-        #         scale_y_continuous(trans='log10')
-        #     g1
-        # }
+       
     })
     
-    # reactive_text <- reactive({
-    #     
-    #     w_dat <- re.route.origin(BigStandard$standardised_incidence)
-    #     
-    #     # and add intervention timign data
-    #     w_dat <- district.start.date.find(w_dat, BigStandard$Intervention)
-    #     
-    #     w_dat$Area <- as.character(w_dat$Area)
-    #     
-    #     maxDaysSince <- max(w_dat$Days_since_start[w_dat$Area == input$area_select])
-    #     w_dat_com    <- w_dat[w_dat$Days_since_start <= maxDaysSince, ]
-    #     
-    #     timeSUM    <- cbind(aggregate(standardised_cases ~ Days_since_start,
-    #                                   data=w_dat, FUN=quantile, probs = 0.33)[, 2],
-    #                         aggregate(standardised_cases ~ Days_since_start,
-    #                                   data=w_dat, FUN=quantile, probs = 0.5)[, 2],
-    #                         aggregate(standardised_cases ~ Days_since_start,
-    #                                   data=w_dat, FUN=quantile, probs = 0.66)[, 2])
-    #     # compariosn matrix
-    #     comp_mat <- cbind(w_dat[w_dat$Area == input$area_select,
-    #                             "standardised_cases"] >= timeSUM[, 1],
-    #                       w_dat[w_dat$Area == input$area_select,
-    #                             "standardised_cases"] >= timeSUM[, 2],
-    #                       w_dat[w_dat$Area == input$area_select,
-    #                             "standardised_cases"] >= timeSUM[, 3])
-    #     comp_mat_sum = as.logical(apply(comp_mat, 2, median))
-    #     
-    #     if(all(comp_mat_sum)){OB_sum = "above average"}
-    #     if(sum(comp_mat_sum) < 3){OB_sum = "average"}
-    #     if(sum(comp_mat_sum) < 2){OB_sum = "below average"}
-    #     
-    # })
-    # 
+    
     
     output$selected_text <- renderText({
         paste("After accounting for different population sizes",
