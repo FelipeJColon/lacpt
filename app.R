@@ -282,13 +282,31 @@ ui <- navbarPage(
                                   plotOutput("p3",
                                              height="900px"),
                                   br(),
-                                  htmlOutput("quantile_text"),
-                                  br(),
-                                  htmlOutput("quantile_text2"),
-                                  br(),
-                                  htmlOutput("quantile_text3"),
-                                  br(),
-                                  htmlOutput("quantile_text4"),
+                                  tags$li("Currently there is a slight 
+                                          non-significant trend towards 
+                                          hgiher incidence rates in sparsely 
+                                          populated areas."),
+                                  tags$li("Currently there is a slight 
+                                          non-significant trend towards
+                                          lower incidence rates in higher 
+                                          Socio-Demographic Index areas, 
+                                          however, these differences appear 
+                                          to reduce as the outbreak progresses."),
+                                  tags$li("Currently there is a slight 
+                                          non-significant trend towards lower 
+                                          incidence rates in areas that have
+                                          higher access to piped water."),
+                                  tags$li("urrently there is a slight 
+                                          non-significant trend towards lower 
+                                          incidence rates in areas that have
+                                          higher access connection to the 
+                                          sewerage network (or septic tank),
+                                          particularly in the early stages of
+                                          the epidemic."),
+                                  tags$li("Currently more isolated regions 
+                                          (longer travel time) have higher 
+                                          incidence outbreaks, particularly 
+                                          later on in the epidemic."),
                                   br(), br()
                                   
                          )
@@ -299,13 +317,6 @@ ui <- navbarPage(
     
     tabPanel(title="Download data",
              tags$h4("Download local area data"),
-             # pickerInput("area_select3",
-             #             h5("Select your local area"),
-             #             choices  = sort(
-             #                 as.character(names(BigStandard))),
-             #             options  = list(`actions-box` = TRUE),
-             #             selected = "São Paulo_SP",
-             #             multiple = FALSE),
              numericInput("maxrows",
                           uiOutput("rows_label"), 15),
              downloadButton("downloadCsv",
@@ -609,8 +620,8 @@ server <- function(input, output, session) {
     output$state_selector2 <- renderUI({ #creates State select box object called in ui
         pickerInput(inputId = "region_select2", #name of input
                     label = h5("Select your State"), #label displayed in ui
-                    choices = sort(unique(as.character(myMap@data$Region))),
-                    selected = "SP") #default choice (not required)
+                    choices = c("National", sort(unique(as.character(myMap@data$Region)))),
+                    selected = "National") #default choice (not required)
     })
     
     
@@ -772,7 +783,8 @@ server <- function(input, output, session) {
         int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
                             ncol = length(int_opts))
         for(i in 1:length(int_opts)){
-            int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), data = z_dat, FUN = min)[, 2]
+            int_first[, i] = aggregate(as.formula(paste0(int_opts[i], " ~ Area")), 
+                                       data = z_dat, FUN = min)[, 2]
         }
         
         # remove columsn with all 0s
@@ -830,12 +842,6 @@ server <- function(input, output, session) {
             trend_s_dat <- s_dat
         }
         
-        if(input$outcome_selectx=="Incidence"){
-            trend_s_dat$outcome <- trend_s_dat$standardised_cases
-        } else{
-            trend_s_dat$outcome <- trend_s_dat$Deaths_50
-        }
-        
         popdenDF       <- aggregate(popden ~ Area, max, data=trend_s_dat)
         
         popdenQuartile <- quantile(popdenDF$popden, probs=(0:4)/4)
@@ -863,9 +869,9 @@ server <- function(input, output, session) {
         levels(SDIDF$SDIQuartile) <- Q_labels
         SDIDF$SDIQuartile <- as.character(SDIDF$SDIQuartile)
         
-        PipedDF<-aggregate(Piped_water ~ Area, max, data=trend_s_dat)
+        PipedDF <- aggregate(Piped_water ~ Area, max, data=trend_s_dat)
         
-        PipedQuartile<-quantile(PipedDF$Piped_water, probs=(0:4)/4)
+        PipedQuartile <- quantile(PipedDF$Piped_water, probs=(0:4)/4)
         
         PipedDF$PipedQuartile <- cut(PipedDF$Piped_water, PipedQuartile,
                                      include.lowest=TRUE)
@@ -910,31 +916,33 @@ server <- function(input, output, session) {
                                          "SDIQuartile", 
                                          "PipedQuartile",
                                          "SewQuartile", 
-                                         "TravQuartile", 
-                                         "outcome")]
+                                         "TravQuartile")]
         
         bp_ofile <- list(of1=QuartileTimeDF,
                          of2=SDIQuartile,
                          of3=PipedQuartile,
                          of4=SewQuartile,
-                         of5=TravQuartile)
+                         of5=TravQuartile,
+                         of6=popdenQuartile)
     })
     
     output$p3 <- renderPlot({
         
         g3 <- ggplot(area_db2()$of1,
                      aes(x=factor(Days_since_start),
-                         y=outcome,
+                         y=standardised_cases,
                          group=interaction(factor(Days_since_start),
                                            factor(popdenQuartile)))) +
             geom_boxplot(aes(fill=factor(popdenQuartile)), outlier.shape=NA) +
             labs(x = "Days since start",
-                 y = "Incidence per 1,000 people \n(log scale, outliers omitted") +
+                 y = "Cumulative ncidence per 1,000 people \n(log scale, outliers omitted)") +
             scale_y_log10() +
             theme_minimal() +
             scale_fill_tableau(name="Quartile of\npopulation \nper km^2 \n(one definition \nof urban is \n400 or more).",
+                               labels=paste0(round(area_db2()$of6[1:4],2), "-",
+                                             round(area_db2()$of6[2:5],2)),
                                palette="Superfishel Stone") +
-            ggtitle("Population density quantiles") +
+            # ggtitle("Population density") +
             theme(plot.title = element_text(hjust = 0.5)) +
             theme(plot.title = element_text(size=22)) +
             theme(legend.text=element_text(size=12),
@@ -947,19 +955,19 @@ server <- function(input, output, session) {
         
         g4 <- ggplot(area_db2()$of1,
                      aes(x=factor(Days_since_start),
-                         y=outcome,
+                         y=standardised_cases,
                          group=interaction(factor(Days_since_start),
                                            factor(SDIQuartile)))) +
             geom_boxplot(aes(fill=factor(SDIQuartile)), outlier.shape=NA) +
             labs(x = "Days since start",
-                 y = "Incidence per 1,000 people \n(log scale, outliers omitted") +
+                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
             scale_fill_tableau(
                 name="Quartile of SDI: Socio \nDemographic Index,\na composite relative \nmeasure of development \nranging from 0 (lowest) \nto 1 (highest).",
                 labels=paste0(round(area_db2()$of2[1:4],2), "-",
                               round(area_db2()$of2[2:5],2)),
                 palette="Superfishel Stone") +
             theme_minimal() +
-            ggtitle("Socio Demographic Index quantiles") +
+            # ggtitle("Socio Demographic Index") +
             theme(plot.title = element_text(hjust = 0.5)) +
             theme(plot.title = element_text(size=22)) +
             theme(legend.text=element_text(size=12),
@@ -973,12 +981,12 @@ server <- function(input, output, session) {
         
         g5 <- ggplot(area_db2()$of1,
                      aes(x=factor(Days_since_start),
-                         y=outcome,
+                         y=standardised_cases,
                          group=interaction(factor(Days_since_start),
                                            factor(PipedQuartile)))) +
             geom_boxplot(aes(fill=factor(PipedQuartile)), outlier.shape=NA) +
             labs(x = "Days since start",
-                 y = "Incidence per 1,000 people \n(log scale, outliers omitted") +
+                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
             scale_fill_tableau(
                 name="Quartile of proportion \nof households with \npiped water ",
                 labels=paste0(round(area_db2()$of3[1:4],2), "-",
@@ -986,6 +994,7 @@ server <- function(input, output, session) {
                 palette="Superfishel Stone") +
             scale_y_log10() +
             theme_minimal() +
+            # ggtitle("Access to piped water") +
             theme(plot.title = element_text(hjust = 0.5)) +
             theme(plot.title = element_text(size=22)) +
             theme(legend.text=element_text(size=12),
@@ -998,12 +1007,12 @@ server <- function(input, output, session) {
         
         g6 <- ggplot(area_db2()$of1,
                      aes(x=factor(Days_since_start),
-                         y=outcome,
+                         y=standardised_cases,
                          group=interaction(factor(Days_since_start),
                                            factor(SewQuartile)))) +
             geom_boxplot(aes(fill=factor(SewQuartile)), outlier.shape=NA) +
             labs(x = "Days since start",
-                 y = "Incidence per 1,000 people \n(log scale, outliers omitted") +
+                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
             scale_fill_tableau(
                 name="Quartile of proportion of \nhouseholds connected \nto the sewage network \nor with a septic tank ",
                 labels=paste0(round(area_db2()$of4[1:4],2), "-",
@@ -1011,6 +1020,7 @@ server <- function(input, output, session) {
                 palette="Superfishel Stone") +
             scale_y_log10() +
             theme_minimal() +
+            # ggtitle("Access to piped water") +
             theme(plot.title = element_text(hjust = 0.5)) +
             theme(plot.title = element_text(size=22)) +
             theme(legend.text=element_text(size=12),
@@ -1024,12 +1034,12 @@ server <- function(input, output, session) {
         
         g7 <- ggplot(area_db2()$of1,
                      aes(x=factor(Days_since_start), 
-                         y=outcome, 
+                         y=standardised_cases, 
                          group=interaction(factor(Days_since_start),
                                            factor(TravQuartile)))) + 
             geom_boxplot(aes(fill=factor(TravQuartile)), outlier.shape=NA) +
             labs(x = "Days since start",
-                 y = "Incidence per 1,000 people \n(log scale, outliers omitted") +
+                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
             scale_fill_tableau(
                 name="Quartile of \nTravel time (in minutes)\n to largest city in the State", 
                 labels=paste0(round(area_db2()$of5[1:4],2), "-", 
@@ -1056,43 +1066,7 @@ server <- function(input, output, session) {
         
     })
     
-    output$quantile_text <- renderText({
-        paste( "Currently there is no strong trend between population",
-               "density and incidence of COVID-19 with comparable incidence",
-               "rates between urban and rural areas.")
-        
-    })
-    
-    
-    
-    output$quantile_text2 <- renderText({
-        paste( "Ccurrently there is a slight non-significant trend",
-               "towards lower incidence rates in higher Socio-Demographic",
-               "Index areas, however these differences appear to reduce",
-               "as the outbreak progresses.")
-        
-    })
-    
-    
-    
-    output$quantile_text3 <- renderText({
-        paste("Currently there is a slight non-significant trend",
-              "towards lower incidence rates in areas that have higher",
-              "access to piped waters.")
-        
-    })
-    
-    
-    
-    output$quantile_text4 <- renderText({
-        
-        if(input$region_select2 == "National"){
-            paste("Ccurrently there is a slight non-significant trend towards",
-                  "lower incidence rates in areas that have higher access connection",
-                  "to the sewage network (or septic tank), particularly in the early",
-                  "stages of the epidemic.")
-        }
-    })
+   
     
     output$rows_label = renderText({
         switch(input$language, "EN"="Number of rows to show",
