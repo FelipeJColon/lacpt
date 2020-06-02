@@ -605,44 +605,6 @@ server <- function(input, output, session) {
         options(orig)
     })
     
-    # y_label <- reactive({
-    #     if(input$outcome_select2=="Hospital bed occupancy") {
-    #         y_label <- "Standardised hospital beds required per 1,000 people"
-    #     } else if(input$outcome_select2=="ITU bed occupancy") {
-    #         y_label <- "Standardised ITU beds required per 1,000 people"
-    #     } else if(input$outcome_select2=="Cumulative death incidence") {
-    #         y_label <- "Standardised deaths per 1,000,000 people"
-    #     } else {
-    #         y_label <- "Standardised cases per 1,000 people"
-    #     }
-    # })
-    
-    # output$state_selector <- renderUI({ #creates State select box object called in ui
-    #     pickerInput(inputId = "region_select", #name of input
-    #                 label = h5("Select your State"), #label displayed in ui
-    #                 choices = sort(unique(as.character(regions))),
-    #                 selected = "SP") #default choice (not required)
-    # })
-    # 
-    # output$area_selector <- renderUI({#creates County select box object called in ui
-    #     
-    #     areas <- as.character(d_dat$Area[as.character(d_dat$Region) ==
-    #                                          input$region_select])
-    #     data_available <- sort(areas[!is.na(areas)])
-    #     pickerInput(inputId = "area_select", #name of input
-    #                 label = h5("Select your local area"), #label displayed in ui
-    #                 choices = unique(data_available), #calls list of available counties
-    #                 selected = "São Paulo_SP")
-    # })
-    # 
-    # output$filter_selector <- renderUI({#creates County select box object called in ui
-    #     
-    #     pickerInput(inputId = "filter_select", #name of input
-    #                 label = h5("Select your Region"), #label displayed in ui
-    #                 choices = c("None",
-    #                             sort(unique(as.character(myMap@data$Region)))),
-    #                 selected = "None")
-    # })
     
     output$state_selector2 <- renderUI({ #creates State select box object called in ui
         pickerInput(inputId = "region_select2", #name of input
@@ -698,8 +660,6 @@ server <- function(input, output, session) {
         
        
     })
-    
-    
     
     output$selected_text <- renderText({
         paste("After accounting for different population sizes",
@@ -864,8 +824,8 @@ server <- function(input, output, session) {
         s_dat$Area   <- as.character(s_dat$Area)
         s_dat$Region <- str_sub(s_dat$Area, start= -2)
         
-        if(input$filter_select2 != "National"){
-            trend_s_dat <- s_dat[s_dat$Region == input$filter_select2, ]
+        if(input$region_select2 != "National"){
+            trend_s_dat <- s_dat[s_dat$Region == input$region_select2, ]
         }else{
             trend_s_dat <- s_dat
         }
@@ -1126,7 +1086,7 @@ server <- function(input, output, session) {
     
     output$quantile_text4 <- renderText({
         
-        if(input$filter_select2 == "National"){
+        if(input$region_select2 == "National"){
             paste("Ccurrently there is a slight non-significant trend towards",
                   "lower incidence rates in areas that have higher access connection",
                   "to the sewage network (or septic tank), particularly in the early",
