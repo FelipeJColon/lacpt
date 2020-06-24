@@ -58,7 +58,7 @@ if(!require(sf)) install.packages("sf", repos = "http://cran.us.r-project.org")
 if(!require(rdrop2)) install.packages("rdrop2", repos = "http://cran.us.r-project.org")
 
 # Load global variables
-app_title <- "COVID-19 Local Information Comparison (CLIC Brazil)"
+app_title <- "COVID-19 Local Information Comparison (CLIC Brazil)ire"
 
 options(shiny.sanitize.errors = TRUE)
 
@@ -72,6 +72,22 @@ target <- gsub("-", "_", DateUntil)
 sear   <- drop_search(target)
 try({
     drop_download(sear$matches[[1]]$metadata$path_display,
+                  local_path = 'input_data/',
+                  overwrite=TRUE)
+})
+
+target2 <- "current_total_cases"
+sear2   <- drop_search(target2)
+try({
+    drop_download(sear2$matches[[1]]$metadata$path_display,
+                  local_path = 'input_data/',
+                  overwrite=TRUE)
+})
+
+target3 <- "Trends_plots2020_06_23"
+sear3   <- drop_search(target3)
+try({
+    drop_download(sear3$matches[[1]]$metadata$path_display,
                   local_path = 'input_data/',
                   overwrite=TRUE)
 })
@@ -103,7 +119,7 @@ Brazil_cases_sp <- Brazil_cases_sp[Brazil_cases_sp$date_end <= DateUntil, ]
 Brazil_cases_sp <- Brazil_cases_sp[!is.na(Brazil_cases_sp$X), ]
 
 # trim to just latest number of cumulative cases / incidence
-# Brazil_cases_cum_cases <- aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
+Brazil_cases_cum_cases <- aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
 # Brazil_cases_cum_incid <- aggregate(standardised_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
 
 # make sf object
@@ -930,7 +946,7 @@ server <- function(input, output, session) {
                                 "standardised_cases"] >= timeSUM[, 2],
                           x_dat[x_dat$Area == input$area_select,
                                 "standardised_cases"] >= timeSUM[, 3])
-        comp_mat_sum = as.logical(apply(comp_mat, 2, median))
+        comp_mat_sum <- as.logical(apply(comp_mat, 2, median))
         
         if(all(comp_mat_sum)){OB_sum = "above average"}
         if(sum(comp_mat_sum) < 3){OB_sum = "average"}
@@ -986,7 +1002,8 @@ server <- function(input, output, session) {
     
     output$area_selector <- renderUI({#creates County select box object called in ui
         
-        areas <- as.character(Brazil_cases_sp$Area[as.character(Brazil_cases_sp$Name) ==
+        areas <- as.character(
+            Brazil_cases_sp$Area[as.character(Brazil_cases_sp$Name) ==
                                                        input$region_select])
         data_available <- sort(areas[!is.na(areas)])
         pickerInput(inputId = "area_select", #name of input
