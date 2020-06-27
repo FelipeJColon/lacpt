@@ -37,6 +37,7 @@ if(!require(magrittr)) install.packages("magrittr", repos = "http://cran.us.r-pr
 if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
 if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
 if(!require(ggthemes)) install.packages("ggthemes", repos = "http://cran.us.r-project.org")
+if(!require(ggrepel)) install.packages("ggrepel", repos = "http://cran.us.r-project.org")
 if(!require(gghighlight)) install.packages("gghighlight", repos = "http://cran.us.r-project.org")
 if(!require(leaflet)) install.packages("leaflet", repos = "http://cran.us.r-project.org")
 if(!require(plotly)) install.packages("plotly", repos = "http://cran.us.r-project.org")
@@ -125,12 +126,6 @@ Brazil_cases_sp <- Brazil_cases_sp[!is.na(Brazil_cases_sp$X), ]
 # trim to just latest number of cumulative cases / incidence
 Brazil_cases_cum_cases <- aggregate(cum_cases ~ Area + X + Y, 
                                     data = Brazil_cases_sp, FUN = max)
-# Brazil_cases_cum_incid <- aggregate(standardised_cases ~ Area + X + Y, 
-# data = Brazil_cases_sp, FUN = max)
-
-# make sf object
-# Brazil_cases_cum_cases <- st_as_sf(Brazil_cases_cum_cases, coords = c("X", "Y"))
-# Brazil_cases_cum_incid <- st_as_sf(Brazil_cases_cum_incid, coords = c("X", "Y"))
 
 # extract dates from cv data
 min_date <- as.Date(min(Brazil_cases_sp$date_end),"%Y-%m-%d")
@@ -143,16 +138,6 @@ Brazil_cases_sp2   <- Brazil_cases_sp[Brazil_cases_sp$cum_cases > 50, ]
 Brazil_cases_areas <- aggregate(Area ~ date_end, data = Brazil_cases_sp2,
                                 FUN = length)
 rm(Brazil_cases_sp2)
-
-# LocalArea <- "São Paulo_SP"
-
-# d_dat        <- Brazil_cases_sp
-# d_dat$region <- str_sub(d_dat$Area, start= -2)
-
-# regions <- sort(unique(str_sub(Brazil_cases_sp$Area, start= -2)))
-
-# c_dat        <- BigStandard
-# names(c_dat) <- substr(names(c_dat), 1, nchar(names(c_dat))-3)
 
 # preprocessing to re-route beginign of the epidemic depending 
 # on chosen area
@@ -174,6 +159,51 @@ timeSUM    <- cbind(aggregate(standardised_cases ~ Days_since_start,
                               data=x_dat, FUN=quantile, probs = 0.5)[, 2],
                     aggregate(standardised_cases ~ Days_since_start,
                               data=x_dat, FUN=quantile, probs = 0.66)[, 2])
+
+# preprocessing to re-route beginign of the epidemic depending on chosen area
+z_dat <- re.route.origin(BigStandard$standardised_incidence,
+                         Zerotrim = FALSE)
+
+# and add intervention timing data
+z_dat <- district.start.date.find(z_dat, BigStandard$Intervention)
+
+# all interventions
+int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
+int_opts = int_opts[!int_opts == "Days_since_start"]
+
+
+# loop through interventions aggregating at the area level
+int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
+                    ncol = length(int_opts))
+for(i in 1:length(int_opts)){
+    int_first[, i] = aggregate(as.formula(paste0(int_opts[i], 
+                                                 " ~ Area")), 
+                               data = z_dat, FUN = min)[, 2]
+}
+colnames(int_first)= gsub("_start", "", int_opts)
+
+
+# reformat into a data frame
+int_first = data.frame(Area = sort(unique(z_dat$Area)),
+                       int_first)
+
+# now reshape into long format
+Int_long <- reshape(int_first,
+                    times = colnames(int_first)[-1],
+                    varying = list(2:ncol(int_first)),
+                    direction = "long")
+
+# formatting
+Int_long$time = as.character(Int_long$time)
+Int_long$time = gsub("_", " ", Int_long$time)
+
+# reordering to maintain alphabetical order
+Int_long$time <- factor(Int_long$time,
+                        levels = sort(unique(Int_long$time)),ordered = TRUE)
+
+# standardise intervention column name
+colnames(Int_long)[3] = "Intervention_type"
+
 
 ui <- navbarPage(
     theme       = shinytheme("flatly"),
@@ -345,16 +375,6 @@ ui <- navbarPage(
                                  selected = "National",
                                  multiple = FALSE),
                      
-                     # htmlOutput("state_selector2"),
-                     # uiOutput("highlight_slider"),
-                     
-                     # htmlOutput("area_selector2"),
-                     
-                     # htmlOutput("outcome_selector2"),
-                     
-                     # htmlOutput("filter_selector2"),
-                     
-                     # uiOutput("area_slider2"),
                  ),
                  
                  mainPanel(
@@ -399,87 +419,27 @@ ui <- navbarPage(
                  tags$h5(uiOutput("covid_label")),
                  uiOutput("text1"),
                  tags$br(),
-                 tags$h5("(2) Age distribution of COVID cases"),
-                 "This was derived from data on notified COVID-19 cases",
-                 "reported throughout Brazil between 2nd Feb and 8th June",
-                 "2020 collected by the Brazilian Ministry of Health and is",
-                 "used with their permission.",
+                 tags$h5(uiOutput("age_label")),
+                 uiOutput("text2"),
                  tags$br(),
-                 tags$h5("(3) Age distribution data"),
-                 "Data on the distribution of the population by age for each",
-                 "municipality was obtained from the Instituto Brasileiro de",
-                 "Geografia e Estatisitica (IBGE) national demographic census",
-                 "for 2010. The data was downloaded from",
-                 tags$a(href="https://sidra.ibge.gov.br/tabela/3107",
-                        "IBGE"),
+                 tags$h5(uiOutput("age_label2")),
+                 uiOutput("text3"),
                  tags$br(),
-                 tags$h5("(4) COVID-19 Intervention data"),
-                 "Data on the types of interventions implemented and the",
-                 "dates of their introduction were derived by manual",
-                 "extraction of information from two primary data sources; ",
-                 "the ACAPS #COVID 19 Government Measures Dataset ",
-                 tags$a(href="https://www.acaps.org/covid19-government-measures-dataset",
-                        "ACAPS"), "and the ",
-                 tags$a(href="https://www.bsg.ox.ac.uk/research/research-projects/coronavirus-government-response-tracker",
-                        "Coronavirus Government Response Tracker"), "collated by a",
-                 "team based at the Blavatnik School of Government and the",
-                 "University of Oxford, UK. Data sources were extracted on",
-                 "14th May 2020.",
-                 tags$br(),tags$br(),
+                 tags$h5(uiOutput("intervention_label")), 
+                 uiOutput("text4"),
+                 tags$br(),
                  
-                 tags$h4("Methods"),
-                 tags$h5("Age and population standardisation process"),
-                 "The aim of our standardisation process is to make data",
-                 "comparable between areas that have different populatio",
-                 "sizes and age profiles. We first assign the number of cases",
-                 "reported in each area (1) a hypothetical age distribution",
-                 "based on the Brazilian national age distribution of COVID-19",
-                 "cases (2). We then use local area age-stratified population",
-                 "data (3) to calculate age-specific incidence (standardised",
-                 "incidence) which is a measure that is comparable between",
-                 "areas. A measure of standardised incidence of Covid-19 ",
-                 "cases per 1,000 inhabitants is then calculated based on",
-                 "the national age profile of Brazil for visualisation in",
-                 "this applications",
+                 tags$h4(uiOutput("methods")),
+                 tags$h5(uiOutput("age_label3")),
+                 uiOutput("text5"),
+                 tags$br(),
+                 
+                 tags$h5(uiOutput("covariates")),
+                 uiOutput("text6"),
                  
                  tags$br(),
-                 "Days since the start of the outbreak is calculated from",
-                 "whenever each area passes a cumulative incidence threshold",
-                 "equivalent to 1 case per 10,000 inhabitants.",
-                 tags$br(),tags$br(),
                  
-                 
-                 tags$h5("Covariates"),
-                 "The Socio Demographic Index (SDI) is a composite relative",
-                 "measure of development ranging from 0 (lowest) to 1",
-                 "(highest). It is calculated using the average rankings of",
-                 "income per capita, fertility rate and mean years of ",
-                 "education among all municipalities as measured by the 2010",
-                 "IBGE census. Variables for population density, access to",
-                 "piped water and access to sewage system or septic tank were",
-                 "also obtained from the 2010 IBGE census. Travel time to",
-                 "biggest city in the state was calculated using ",
-                 tags$a(href="https://www.worldpop.org", "WorldPop"),  
-                 "population data and the ",
-                 tags$a(href="https://developers.google.com/earth-engine/datasets/catalog/Oxford_MAP_friction_surface_2015_v1_0", "Malaria Atlas Project"),
-                 "travel time friction surface using the",
-                 tags$a(href="https://malariaatlas.org/application-project/malariaatlas_package/", "malariaAtlas"),
-                 "R package accumulated cost route finding algorithm. Travel",
-                 "time represents the land-based travel time between the most",
-                 "densely populated area in the municipality that is",
-                 "experiencing the Covid-19 outbreak and the most densely",
-                 "populated area in the corresponding state. We may expect",
-                 "higher Covid-19 incidence rates in highly accessible areas",
-                 "due to frequent re-introduction of the virus, or conversely",
-                 "we may expect higher incidence rates in remote areas due to",
-                 "the increased challenge of adhering to movement restrictions.",
-                 
-                 # tags$br(),tags$br(),
-                 # "Thi analysis was last updated on 28th May 2020.",
-                 
-                 tags$br(),tags$br(),
-                 
-                 tags$h4("Authors"),
+                 tags$h4(uiOutput("authors")),
                  "Dr Oliver Brady",
                  tags$br(),
                  "Dr Paul Mee",
@@ -489,31 +449,13 @@ ui <- navbarPage(
                  "Dr Neal Alexander",
                  tags$br(),
                  "CMMID nCov working group",
-                 # "Centre for the Mathematical Modelling of Infectious",
-                 # "Diseases", tags$a(href="http://cmmid.lshtm.ac.uk/",
-                 #                    "(CMMID)."),
-                 tags$br(),tags$br(),
                  
-                 tags$h4("Disclaimer"), 
-                 "The aim of this site is to complement the resources provided",
-                 "by the Brazilian ministry of health. This app has been",
-                 "developed for research purposes only and is not suitable to",
-                 "use as medical advice or to assess your personal level of",
-                 "risk. Data are provided without any warranty of any kind,",
-                 "either express or implied. The entire risk arising out of",
-                 "the use or performance of the app and associated data",
-                 "remains with you. In no event shall the London School of",
-                 "Hygiene and Tropical Medicine (LSHTM), the authors, or",
-                 "anyone else involved in the creation, production, or",
-                 "delivery of the app be liable for any damages whatsoever",
-                 "including, without limitation, damages for loss of business",
-                 "profits, business interruption, loss of business information,",
-                 "or other pecuniary loss arising out of the use of or ",
-                 "inability to use this app even if LSHTM has been advised",
-                 "of the possibility of such damages.",
+                 tags$br(), tags$br(),
+                 tags$h4(uiOutput("disclaimer")), 
+                 uiOutput("text7"),
                  
-                 tags$br(),tags$br(),
-                 tags$h4("Contact"),
+                 tags$br(),
+                 tags$h4(uiOutput("contact")),
                  tags$a(href="oliver.brady@lshtm.ac.uk",
                         "Oliver.Brady@lshtm.ac.uk"),
                  "London School of Hygiene and Tropical Medicine",
@@ -523,235 +465,44 @@ ui <- navbarPage(
                  tags$br(), tags$br(), tags$br()
              )
     ),
-    tabPanel(title="How to use",
+    tabPanel(title=uiOutput("tab_title7"),
              tags$div(
                  tags$h3("COVID-19 Local Information Comparison"),
                  tags$h4("(CLIC Brazil)"),
                  tags$br(), 
-                 tags$h4("Introduction"),
-                 "The COVID-19 Local Information Comparison (CLIC Brazil)",
-                 "web application allows local public health decision makers",
-                 "and researchers to compare the current COVID-19 epidemic",
-                 "in different local areas (municipalities) across Brazil.",
-                 "It aims to:",
-                 tags$br(), 
-                 tags$li("Identify hotspots of COVID-19disease."),
-                 tags$li("Compare the outbreak trajectories between",
-                         "municipalities to understand where the epidemic is",
-                         "growing fastest."),
-                 tags$li("Assess the socioeconomic drivers of COVID-19 risk."),
+                 tags$h4(uiOutput("intro")),
+                 uiOutput("text8"),
+                 
                  tags$br(),
-                 tags$h4("National Overview tab"),
-                 "This tab shows a map of Brazil in which each municipality",
-                 "with a COVID-19 outbreak is indicated by a circle. By ",
-                 "selecting the options under ‘Select Variable’, the map ",
-                 "can be configured to display either the total number of ",
-                 "COVID-19 cases or the incidence per 1000 people in the",
-                 "population. Cirlces with a dartker shading indicate higher",
-                 "values. By sliding the ‘date’ button you can get a snapshot",
-                 "of the epidemic on previous days and explore how the",
-                 "epidemic has evolved. The plots and text box provide summary",
-                 "information on the growth of the national epidemic.",
+                 tags$h4(uiOutput("nat_overview")),
+                 uiOutput("text9"),
+                 
                  tags$br(),
-                 tags$h4("Local area comparison tab"),
-                 "The main graph on this tab shows the growth of the epidemic",
-                 "over time in each muncipality. Case numbers have been",
-                 "'age-standardised' to allow comparisons between",
-                 "municipalities with different population sizes and age",
-                 "structures. The timing of the start of the outbreak in", 
-                 "each muncipality has also been standardised to the first",
-                 "day on which a case incidence of greater than 1 case per",
-                 "1000 residents was reported. - Using the top pull-down",
-                 "list on the left you select the state in which you",
-                 "municipality of interest is located the trajectories for",
-                 "all municpalities in the state will be highlighted in",
-                 "orange on the plot. - The central pull-down list allows",
-                 "you to select the municipality of interest, these are",
-                 "labelled with the Municipality name and the",
-                 "State name. - The lower pull-down allows you to select",
-                 "the measure of interest from the following options; ",
-                 "Cumulative case incidence, Cumulative death incidence,",
-                 "hospital bed occupancy and ITU bed occupancy (The details",
-                 "of the methods used to calculate these parameters are given",
-                 "in the ‘About this site’ tab)",
-                 tags$br(),tags$br(),
-                 "For example, if you compare the trajectory for cumulative",
-                 "case incidence for São Paulo municipality with the",
-                 "trajectories for all municipalities in São Paolo state",
-                 "and (orange) and all municipalities in Brazil, you would",
-                 "see this output:",
-                 tags$br(),tags$br(),
-                 tags$h5("Cumulative case plot"),
+                 tags$h4(uiOutput("local_area")),
+                 uiOutput("text10"),
+                 
+                 tags$br(),
+                 tags$h5(uiOutput("plot1_inset")),
                  imageOutput("saopaulo", 
-                             # height="100px", 
-                             # width="10%", 
                              inline=TRUE),
                  
                  tags$br(),tags$br(),
-                 tags$h5("Timing of interventions plot"),
-                 "This graph shows the time different interventions were",
-                 "announced relative to when the epidemic began in each",
-                 "municipality. The time origin (day 0) for each municipality",
-                 "is the first day on which a case incidence of greater than",
-                 "1 case per 1000 residents was reported. Each black dot",
-                 "represents one municipality with the red dots representing",
-                 "the municipality selected in the dropdown menu. Dots in ",
-                 "the blue area represent municipalities where the intervention",
-                 "was announced before the local Covid-19 epidemic began while",
-                 "dots in the red area show municipalities where interventions",
-                 "were only announced after the outbreak had begun. The box",
-                 "plot summarises the median, interquartile range and range",
-                 "of timings for each municipality. The further right the red",
-                 "dot is on this plot the later in the epidemic interventions",
-                 "were announced compared to other areas.",
+                 tags$h5(uiOutput("timing")),
+                 uiOutput("text11"),
                  tags$br(),
                  imageOutput("boxplot", 
-                             # height="100px", 
-                             # width="10%", 
                              inline=TRUE),
                  
                  tags$br(),tags$br(),
-                 tags$h4("Trends tab"),
-                 
-                 
-                 tags$br(),tags$br(),
-                 "This tab allows the user to compare the characteristics of",
-                 "municipalities with worse or better Covid-19 epidemics.",
-                 "Using the pulldown tab you can select to view either national",
-                 "data or the data for one particular state.",
-                 tags$br(),tags$br(),
-                 "The barcharts show differences in age-standardised incidence",
-                 "at different points in the epidemic for subsets of",
-                 "municipalities grouped according to particular",
-                 "characteristics. The vertical line shows the range of the",
-                 "data for each subset and the rectangle shows the value for",
-                 "the median and interquartile range. The sets of lines show",
-                 "the data in 10 day intervals (from 10 to 70 days) from the",
-                 "day at which an incidence of 1 case per 1000 people was",
-                 "reported in a municipality.",
-                 tags$br(),tags$br(),
-                 "For example, the upper left plot (shown below) shows the",
-                 "association between area population density and incidence.",
-                 "The larger the gap between the bars the larger the",
-                 "difference in the Covid-19 epidemic between high and low",
-                 "population density areas. More detailed analysis can be",
-                 "conducted by downloading the data from the data download tab.",
-                 tags$br(),tags$br(),
+                 tags$h4(uiOutput("trends")),
+                 uiOutput("text12"),
+                 tags$br(),
                  imageOutput("quantiles", 
                              inline=TRUE),
                  tags$br(),tags$br(),
                  
-                 tags$h4("Data download tab"),
-                 "If you wish to carry out your own analyses on the standardised",
-                 "data you can download the full dataset in comma separated",
-                 "variable (csv) format from here. A description of the",
-                 "variables included is shown below.",
-                 tags$br(),
-                 tags$b("area"), 
-                 "- Municipality name and State (2 letter code). (NB",
-                 "UTF-8 encoding should be used to correctly format the place",
-                 "names)",
-                 tags$br(),
-                 tags$b("date_end"), 
-                 "- Date of data update (there is one row per municipality per",
-                 "day)",
-                 tags$br(),
-                 tags$b("cum_cases"),
-                 "- Cumulative case count",
-                 tags$br(),
-                 tags$b("cum_deaths"), 
-                 "- Cumulative death count",
-                 tags$br(),
-                 tags$b("bed_occ_2_5,bed_occ_50 & bed_occ_97_5"),
-                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                 "number of hospital beds occupied by patients with COVID-19",
-                 "based on the cumulative data",
-                 tags$br(),
-                 tags$b("itu_bed_occ_2_5,itu_bed_occ_50 & itu_bed_occ_97_5"),
-                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                 "number of Intensive care unit beds occupied by patients with",
-                 "COVID-19 based on the cumulative data.",
-                 tags$br(),
-                 tags$b("standardised_cases"), 
-                 "- Age standardised cumulative case incidence",
-                 tags$br(),
-                 tags$b("statdardised_deaths"), 
-                 "- Age standardised cumulative death incidence",
-                 tags$br(),
-                 tags$b("stan_bed_occ_2_5,stan_bed_occ_50 & stan_bed_occ_97_5"),
-                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                 "number of hospital beds occupied by patients with COVID-19",
-                 "based on the age standardised data.",
-                 tags$br(),
-                 tags$b("stan_itu_bed_occ_2_5,stan_itu_bed_occ_50 & stan_itu_bed_occ_97_5"),
-                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                 "number of Intensive care unit beds occupied by patients with",
-                 "COVID-19 based on the age standardised data.",
-                 tags$br(),
-                 tags$b("region"),
-                 "- State (2 letter code)",
-                 tags$br(),
-                 tags$b("popden"),
-                 "- Population Density (individuals per km2)",
-                 tags$br(),
-                 tags$b("sdi"), 
-                 "- Social demogrpahic index for the mucipality (See Covariates",
-                 "in the 'About this site' - tab).",
-                 tags$br(),
-                 tags$b("piped_water"),
-                 "- Proportion of population in the municipality with access",
-                 "to a piped water supply.",
-                 tags$br(),
-                 tags$b("sewage_or_septic"),
-                 "- Proportion of population in the municipality with access",
-                 "to sewage system or a septic tank",
-                 tags$br(),
-                 tags$b("travel_time"), 
-                 "- The land-based travel time between the most densely",
-                 "populated area in the municipality and the most densely",
-                 "populated area in the corresponding State x - The longitude",
-                 "of the municiplaity in decimal degrees y - The latitude of",
-                 "the municiplaity in decimal degrees.",
-                 tags$b("days_since_start"),
-                 "- The number of days since the age standardised rate was",
-                 "greater than 1 case per 1000 residents",
-                 
-                 tags$br(),tags$br(),
-                 
-                 tags$b("The following variables are indicators which are coded",
-                        "1 if the intervention described had been initiated by",
-                        "this date;"),
-                 
-                 tags$br(),
-                 tags$b("awareness_campaigns_start"),
-                 "- COVID awareness campaigns",
-                 tags$br(),
-                 tags$b("border_closure_start"),
-                 "- International border closures",
-                 tags$br(),
-                 tags$b("domestic_travel_restrictions_start"),
-                 "- Domestic travel restrictions",
-                 tags$br(),
-                 tags$b("economic_measures_start"),
-                 "- Economic interventions",
-                 tags$br(),
-                 tags$b("border_health_screening_start"),
-                 "- Health screening at international borders",
-                 tags$br(),
-                 tags$b("international_flight_suspension_start"),
-                 "- International flights suspended",
-                 tags$br(),
-                 tags$b("isolation_quarrantine_start"),
-                 "- Isolation and quarantine for those infected with COVID-19",
-                 tags$br(),
-                 tags$b("limit_on_public_gatherings_start"),
-                 "- A limit was placed on public gatherings",
-                 tags$br(),
-                 tags$b("schools_closure_start"),
-                 "- School closures initiated",
-                 tags$br(),
-                 tags$b("workplace_closure_start"),
-                 "- Workplace closures initiated",
+                 tags$h4(uiOutput("data_download")),
+                 uiOutput("text13"),
                  
                  tags$br(), tags$br(), tags$br()
              )
@@ -769,7 +520,7 @@ server <- function(input, output, session) {
     
     output$tab_title1 <- renderText({
         switch(input$language, "EN"="National overview",
-               "PR"="Visão nacional") 
+               "PR"="Visão nacional geral") 
     })
     
     output$date_label1 <- renderText({
@@ -806,6 +557,7 @@ server <- function(input, output, session) {
         switch(input$language, "EN"="Select National or a State",
                "PR"="Selecione entre Nacional ou Estado") 
     })
+    
     
     output$list1 <- renderUI({
         switch(input$language, "EN"=
@@ -865,7 +617,91 @@ server <- function(input, output, session) {
                "PR"="(1) Casos de COVID-19") 
     })
     
-    url <- tags$a("brasil.io", href='https://brasil.io/dataset/covid19/caso_full/')
+    
+    output$age_label <- renderText({
+        switch(input$language, "EN"="(2) Age distribution of COVID-19 cases",
+               "PR"="(2) Distribuição etária dos casos COVID-19") 
+    })
+    
+    output$age_label2 <- renderText({
+        switch(input$language, "EN"="(3) Age distribution data",
+               "PR"="(3) Dados de distribuição etária") 
+    })
+    
+    output$intervention_label <- renderText({
+        switch(input$language, "EN"="(4) COVID-19 Intervention data",
+               "PR"="(4) Dados de intervenção para COVID-19") 
+    })
+    
+    output$methods <- renderText({
+        switch(input$language, "EN"="Methods",
+               "PR"="Métodos") 
+    })
+    
+    output$age_label3 <- renderText({
+        switch(input$language, "EN"="Age and population standardisation process",
+               "PR"="Processo de padronização de idade e população") 
+    })
+    
+    output$covariates <- renderText({
+        switch(input$language, "EN"="Covariates",
+               "PR"="Covariáveis") 
+    })
+    
+    output$authors <- renderText({
+        switch(input$language, "EN"="Authors",
+               "PR"="Autores") 
+    })
+    
+    output$disclaimer <- renderText({
+        switch(input$language, "EN"="Disclaimer",
+               "PR"="Aviso legal") 
+    })
+    
+    output$contact <- renderText({
+        switch(input$language, "EN"="Contact",
+               "PR"="Contato") 
+    })
+    
+    output$tab_title7 <- renderText({
+        switch(input$language, "EN"="How to use",
+               "PR"="Como usar") 
+    })
+    
+    output$intro <- renderText({
+        switch(input$language, "EN"="Introduction",
+               "PR"="Introdução") 
+    })
+    
+    output$nat_overview <- renderText({
+        switch(input$language, "EN"="National Overview tab",
+               "PR"="Guia de visão nacional geral") 
+    })
+    
+    output$local_area <- renderText({
+        switch(input$language, "EN"="Local area comparison tab",
+               "PR"="Guia de comparação de áreas") 
+    })
+    
+    output$plot1_inset <- renderText({
+        switch(input$language, "EN"="Cumulative case plot",
+               "PR"="Gráfico de casos acumulados") 
+    })
+    
+    output$timing <- renderText({
+        switch(input$language, "EN"="Timing of interventions plot",
+               "PR"="Gráfico de momento para intervenções") 
+    })
+    
+    output$trends <- renderText({
+        switch(input$language, "EN"="Trends tab",
+               "PR"="Guia sobre tendências") 
+    })
+    
+    output$data_download <- renderText({
+        switch(input$language, "EN"="Data download tab",
+               "PR"="Guia Baixar dados") 
+    })
     
     output$text1 <- renderUI({
         switch(input$language, "EN"=
@@ -896,6 +732,570 @@ server <- function(input, output, session) {
         brasil.io </a></u>")
         )
     })
+    
+    output$text2 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("This was derived from data on notified COVID-19 cases
+                 reported throughout Brazil between 2nd Feb and 8th June,
+                 2020 collected by the Brazilian Ministry of Health and is
+                 used with their permission.</u>"),
+               "PR"=
+                   HTML("Isso foi derivado de dados sobre casos notificados 
+                    do COVID-19 reportado em todo o Brasil entre 2 de 
+                    fevereiro e 8 de junho 2020 coletado pelo Ministério da 
+                    Saúde do Brasil e é usado com a permissão deles.</u>")
+        )
+    })
+    
+    output$text3 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("Data on the distribution of the population by age 
+                        for each municipality was obtained from the Instituto
+                        Brasileiro de Geografia e Estatisitica (IBGE) national 
+                        demographic census for 2010. The data was downloaded
+                        from <a href = 'https://sidra.ibge.gov.br/tabela/3107',>
+                        IBGE </a></u>"),
+               "PR"=
+                   HTML("Dados sobre a distribuição da população por idade 
+                        para cada um município foi obtido do Instituto 
+                        Brasileiro de Censo demográfico nacional Geografia 
+                        e Estatisitica (IBGE) para 2010. Os dados foram 
+                        baixados de <a href = 'https://sidra.ibge.gov.br/tabela/3107',>
+                        IBGE </a></u>")
+        )
+    })
+    
+    output$text4 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("Data on the types of interventions implemented 
+                   and the dates of their introduction were derived by
+                   manual extraction of information from two primary data 
+                   sources; the ACAPS #COVID 19 Government Measures Dataset
+                   <a href='https://www.acaps.org/covid19-government-measures-dataset',>
+                   ACAPS </a> and the 
+                   <a href='https://www.bsg.ox.ac.uk/research/research-projects/coronavirus-government-response-tracker',>
+                   Coronavirus Government Response Tracker </a>
+                   collated by a team based at the Blavatnik School of 
+                   Government and the University of Oxford, UK. Data 
+                   sources were extracted on 14th May 2020.</u>"),
+               "PR"=
+                   HTML("Dados sobre os tipos de intervenções implementadas e as
+                        datas de introdução foram derivadas por extração manual
+                        de informações de duas fontes de dados principais;
+                        o Government Measures Dataset ACAPS #COVID 19
+                        <a href='https://www.acaps.org/covid19-government-measures-dataset',>
+                        ACAPS </a> e o 
+                        <a href='https://www.bsg.ox.ac.uk/research/research-projects/coronavirus-government-response-tracker',>
+                        Coronavirus Government Response Tracker </a> 
+                        reunidos por uma equipe baseada em Blavatnik School 
+                        of Government e na Universidade de Oxford, UK. As 
+                        fontes de dados foram extraídas em 14 de Maio de
+                        2020.</u>")
+        )
+    })
+    
+    output$text5 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("The aim of our standardisation process is to make
+                   data comparable between areas that have different 
+                   population sizes and age profiles. We first assign the 
+                   number of cases reported in each area (1) a hypothetical
+                   age distribution based on the Brazilian national age 
+                   distribution of COVID-19 cases (2). We then use local 
+                   area age-stratified population data (3) to calculate 
+                   age-specific incidence (standardised incidence) which 
+                   is a measure that is comparable between areas. A measure
+                   of standardised incidence of Covid-19 cases per 1,000 
+                   inhabitants is then calculated based on the national 
+                   age profile of Brazil for visualisation in this 
+                   application. Days since the start of the outbreak are
+                   calculated from whenever each area passes a cumulative 
+                   incidence threshold equivalent to 1 case per 10,000 
+                   inhabitants. </u>"),
+               "PR"=
+                   HTML("O objetivo do nosso processo de padronização é criar
+                        dados comparáveis entre áreas com diferentes tamanhos
+                        de populações e perfis de idade. Primeiro atribuímos
+                        o número de casos relatados em cada área (1) uma 
+                        distribuição etária hipotética com base na 
+                        distribuição etária nacional brasileira dos casos 
+                        COVID-19 (2). Em seguida, usamos os dados da 
+                        população estratificada por área local dados 
+                        (3) para calcular a incidência específica por
+                        idade (incidência padronizada), que é uma medida 
+                        comparável entre as áreas. Uma medida da incidência
+                        padronizada de casos Covid-19 por 1.000 habitantes 
+                        é então calculada com base no perfil etário nacional
+                        do Brasil para visualização nestas aplicações. Os 
+                        dias desde o início do surto são calculados a partir 
+                        do momento em que cada área ultrapassar um limiar de
+                        incidência cumulativo equivalente a 1 caso por 10.000
+                        habitantes.</u>")
+        )
+    })
+    
+    output$text6 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("The Socio Demographic Index (SDI) is a composite 
+                        relative measure of development ranging from 0 
+                        (lowest) to 1 (highest). It is calculated using 
+                        the average rankings of income per capita, fertility
+                        rate and mean years of education among all
+                        municipalities as measured by the 2010 IBGE census. 
+                        Variables for population density, access to piped 
+                        water and access to sewage system or septic tank were 
+                        also obtained from the 2010 IBGE census. Travel time
+                        to biggest city in the state was calculated using 
+                        <a href='https://www.worldpop.org',>  WorldPop </a> 
+                        population data and the 
+                        <a href='https://developers.google.com/earth-engine/datasets/catalog/Oxford_MAP_friction_surface_2015_v1_0',> 
+                        Malaria Atlas Project </a>
+                        travel time friction surface using the 
+                        <a href='https://malariaatlas.org/application-project/malariaatlas_package/',>
+                        malariaAtlas </a> R 
+                        package accumulated cost route finding algorithm. 
+                        Travel time represents the land-based travel time 
+                        between the most densely populated area in the 
+                        municipality that is experiencing the COVID-19 
+                        outbreak and the most densely populated area in the 
+                        corresponding state. We may expect higher COVID-19 
+                        incidence rates in highly accessible areas due to 
+                        frequent re-introduction of the virus, or conversely 
+                        we may expect higher incidence rates in remote areas
+                        due to the increased challenge of adhering to movement
+                        restrictions.  </u>"),
+               "PR"=
+                   HTML("O Índice Sociodemográfico (SDI) é uma medida 
+                    relativa de desenvolvimento composta que varia de 0 
+                    (mais baixo) a 1 (mais alto). É calculado usando as 
+                    classificações médias de renda per capita, taxa de 
+                    fertilidade e anos médios de educação entre todos os 
+                    municípios, conforme medido pelo Censo do IBGE de 2010. 
+                    Variáveis para densidade populacional, acesso à água 
+                    encanada e acesso ao sistema de esgoto ou fossa séptica
+                    também foram obtidas no censo do IBGE de 2010. O tempo 
+                    de viagem para a maior cidade do estado foi calculado 
+                    usando dados da população do 
+                    <a href='https://www.worldpop.org',>  WorldPop </a> 
+                    e a superfície de atrito do tempo de viagem do
+                    <a href='https://developers.google.com/earth-engine/datasets/catalog/Oxford_MAP_friction_surface_2015_v1_0',> 
+                    Malaria Atlas Project </a> usando o usando o algoritmo 
+                    de localização de rotas de custo acumulado do pacote R
+                    <a href='https://malariaatlas.org/application-project/malariaatlas_package/',>
+                    malariaAtlas </a>. O tempo de viagem representa o tempo 
+                    de deslocamento em terra entre a área mais densamente 
+                    povoada do município que está sofrendo o surto de 
+                    COVID-19 e a área mais densamente povoada no estado
+                    correspondente. Podemos esperar taxas de incidência mais
+                    altas do COVID-19 em áreas altamente acessíveis devido à 
+                    reintrodução frequente do vírus, ou, inversamente, 
+                    podemos esperar taxas de incidência mais altas em áreas 
+                    remotas devido ao maior desafio de aderir às restrições
+                    de movimento.</u>")
+        )
+    })
+    
+    output$text7 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("The aim of this site is to complement the resources 
+                        provided by the Brazilian ministry of health. This 
+                        app has been developed for research purposes only 
+                        and is not suitable to use as medical advice or to 
+                        assess your personal level of risk. Data are provided 
+                        without any warranty of any kind, either express or 
+                        implied. The entire risk arising out of the use or 
+                        performance of the app and associated data remains 
+                        with you. In no event shall the London School of 
+                        Hygiene and Tropical Medicine (LSHTM), the authors, 
+                        or anyone else involved in the creation, production, 
+                        or delivery of the app be liable for any damages 
+                        whatsoever including, without limitation, damages for 
+                        loss of business profits, business interruption, loss
+                        of business information, or other pecuniary loss 
+                        arising out of the use of or inability to use this 
+                        app even if LSHTM has been advised of the possibility
+                        of such damages. </u>"),
+               "PR"=
+                   HTML("O objetivo deste site é complementar os recursos 
+                        fornecidos pelo Ministério da Saúde do Brasil. 
+                        Este aplicativo foi desenvolvido apenas para fins de
+                        pesquisa e não é adequado para use como orientação 
+                        médica ou para avaliar seu nível pessoal de risco. Os
+                        dados são fornecidos sem qualquer garantia de qualquer
+                        tipo expresso ou implícito. Todo o risco decorrente de
+                        o uso ou desempenho do aplicativo e dados associados
+                        permanece com você. Em nenhum caso a London School of
+                        Higiene e Medicina Tropical (LSHTM), os autores ou
+                        qualquer pessoa envolvida na criação, produção ou
+                        a entrega do aplicativo será responsável por quaisquer
+                        danos incluindo, sem limitação, danos por perda de
+                        negócios lucros, interrupção de negócios, perda de 
+                        informações comerciais ou outra perda pecuniária
+                        decorrente do uso de ou incapacidade de usar este
+                        aplicativo, mesmo que o LSHTM tenha sido alertada da
+                        possibilidade de tais danos. </u>")
+        )
+    })
+    
+    output$text8 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("The COVID-19 Local Information Comparison (CLIC 
+                        Brazil) web application allows local public health
+                        decision makers and researchers to compare the current
+                        COVID-19 epidemic in different local areas 
+                        (municipalities) across Brazil. It aims to:
+                        <li> Identify hotspots of COVID-19 disease.</li>
+                        <li>Compare the outbreak trajectories between
+                        municipalities to understand where the epidemic is 
+                        growing fastest.</li>
+                        <li>Assess the socioeconomic drivers of COVID-19 risk.</li> </u>"),
+               "PR"=
+                   HTML("O aplicativo web de comparação de informações locais 
+                        COVID-19 (CLIC Brasil) permite que tomadores de decisão
+                        e pesquisadores em saúde pública comparem a atual 
+                        epidemia de COVID-19 em diferentes áreas (municípios) 
+                        em todo o Brasil. Tem como objetivo:
+                        <li> Identifique os pontos ativos da doença COVID-19.</li>
+                        <li> Compare as trajetórias de surto entre municípios 
+                        para entender onde a epidemia está crescendo mais 
+                        rapidamente. </li>
+                        <li> Avalie os fatores socioeconômicos do risco COVID-19.</li></u>")
+        )
+    })
+    
+    output$text9 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("This tab shows a map of Brazil in which each 
+                        municipality with a COVID-19 outbreak is indicated by 
+                        a circle. By selecting the options under 'Select 
+                        Variable', the map can be configured to display either
+                        the total number of COVID-19 cases or the incidence per 
+                        1000 people in the population. Cirlces with a dartker 
+                        shading indicate higher values. By sliding the 'date'
+                        button you can get a snapshot of the epidemic on 
+                        previous days and explore how the epidemic has evolved.
+                        The plots and text box provide summary information on 
+                        the growth of the national epidemic. </u>"),
+               "PR"=
+                   HTML("Esse guia mostra um mapa do Brasil em que cada 
+                        município com um número de COVID-19 é indicado por um
+                        círculo. Ao selecionar as opções em 'Selecionar
+                        variável', o mapa pode ser configurado para exibir o
+                        número total de casos COVID-19 ou com incidência de 
+                        1.000 pessoas na população. Cirlces com um sombreador 
+                        de dartker ver valores mais altos. Ao deslizar o botão
+                        'data', você pode obter um instantâneo da epidemia nos 
+                        dias anteriores e explorar como a epidemia evoluiu. 
+                        As parcelas e uma caixa de texto contêm informações 
+                        resumidas sobre o crescimento da epidemia nacional. </u>")
+        )
+    })
+    
+    output$text10 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("The main graph on this tab shows the growth of the 
+                   epidemic over time in each muncipality. Case numbers have
+                   been 'age-standardised' to allow comparisons between 
+                   municipalities with different population sizes and age 
+                   structures. The timing of the start of the outbreak in each
+                   muncipality has also been standardised to the first day 
+                   on which a case incidence of greater than 1 case per 1,000 
+                   residents was reported. - Using the top pull-down list on 
+                   the left you select the state in which you municipality of 
+                   interest is located the trajectories for all municpalities 
+                   in the state will be highlighted in orange on the plot. 
+                   - The central pull-down list allows you to select the 
+                   municipality of interest, these are labelled with the 
+                   Municipality name and the State name. - The lower pull-down
+                   allows you to select the measure of interest from the
+                   following options; Cumulative case incidence, Cumulative
+                   death incidence, hospital bed occupancy and ITU bed 
+                   occupancy (The details of the methods used to calculate 
+                   these parameters are given in the 'About this site' tab) 
+                   </br> </br> For example, if you compare the trajectory for 
+                    cumulative case incidence for São Paulo municipality with 
+                    the trajectories for all municipalities in São Paolo 
+                    State and (orange) and all municipalities in Brazil, you 
+                    would see this output: </u>"),
+               "PR"=
+                   HTML("O gráfico principal desta guia mostra o crescimento da 
+                    epidemia ao longo do tempo em cada município. Os números de 
+                    casos foram ‘padronizados por idade’ para permitir 
+                    comparações entre municípios com diferentes tamanhos 
+                    populacionais e estruturas etárias. O momento do início do 
+                    surto em cada município também foi padronizado para o 
+                    primeiro dia em que foi relatada uma incidência de casos
+                    superior a 1 caso por 1.000 habitantes. - Usando a lista 
+                    suspensa superior à esquerda, você seleciona o estado em 
+                    que seu município de interesse está localizado. As 
+                    trajetórias de todos os municípios do estado serão 
+                    destacadas em laranja no gráfico. - A lista suspensa 
+                    central permite selecionar o município de interesse; estes
+                    são rotulados com o nome do município e o nome do estado. 
+                    - O menu suspenso inferior permite selecionar a medida de 
+                    interesse das seguintes opções; Incidência cumulativa de 
+                    casos, incidência cumulativa de óbitos, ocupação de leitos
+                    hospitalares e ocupação de leitos de UTI (os detalhes dos 
+                    métodos usados para calcular esses parâmetros são 
+                    fornecidos na guia 'Sobre este site') </br> </br> 
+                    Por exemplo, se você comparar a trajetória de incidência
+                    cumulativa de casos no município de São Paulo com as 
+                    trajetórias de todos os municípios do estado de São Paulo 
+                    e (laranja) e de todos os municípios do Brasil, você verá 
+                    este resultado: </u>")
+        )
+    })
+    
+    output$text11 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("This graph shows the time different interventions were 
+                        announced relative to when the epidemic began in each 
+                        municipality. The time origin (day 0) for each 
+                        municipality is the first day on which a case incidence
+                        of greater than 1 case per 1000 residents was reported. 
+                        Each black dot represents one municipality with the red 
+                        dots representing the municipality selected in the 
+                        dropdown menu. Dots in the blue area represent 
+                        municipalities where the intervention was announced 
+                        before the local Covid-19 epidemic began while dots in 
+                        the red area show municipalities where interventions 
+                        were only announced after the outbreak had begun. The 
+                        box plot summarises the median, interquartile range and 
+                        range of timings for each municipality. The further 
+                        right the red dot is on this plot the later in the 
+                        epidemic interventions were announced compared to other 
+                        areas. </u>"),
+               "PR"=
+                   HTML("Este gráfico mostra o momento em que diferentes 
+                        intervenções foram anunciadas em relação ao início da
+                        progressão da epidemia em cada município. O momento 
+                        inicial (dia 0) em cada município é o primeiro dia em 
+                        que foi relatada uma incidência de caso superior a 1 
+                        caso por 1.000 residentes. Cada ponto preto representa 
+                        um município, com os pontos vermelhos representando o
+                        município selecionado no menu suspenso. Os pontos na 
+                        área azul representam os municípios onde a intervenção 
+                        foi anunciada antes do início da epidemia de Covid-19, 
+                        enquanto os pontos na área vermelha mostram os 
+                        municípios onde as intervenções só foram anunciadas 
+                        após o início do surto. O gráfico da caixa resume a 
+                        mediana, intervalo interquartil e intervalo de tempos 
+                        para cada município. Quanto mais à direita o ponto 
+                        vermelho estiver nessa trama, mais tarde nas intervenções 
+                        epidêmicas foram anunciadas em comparação com outras 
+                        áreas. </u>")
+        )
+    })
+    
+    output$text12 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("This tab allows the user to compare the characteristics
+                   of municipalities with worse or better COVID-19 epidemics. 
+                   Using the pulldown tab you can select to view either national
+                   data or the data for one particular state. 
+                   </br> </br>
+                   The barcharts show differences in age-standardised 
+                   incidence at different points in the epidemic for subsets of
+                   municipalities grouped according to particular characteristics. 
+                   The vertical line shows the range of the data for each subset
+                   and the rectangle shows the value for the median and 
+                   interquartile range. The sets of lines show the data in 10
+                   day intervals (from 10 to 70 days) from the day at which an 
+                   incidence of 1 case per 1000 people was reported in a 
+                   municipality. </br>
+                   </br> For example, the upper left plot (shown below) shows 
+                        the association between area population density and 
+                        incidence. The larger the gap between the bars the 
+                        larger the difference in the Covid-19 epidemic between
+                        high and low population density areas. More detailed 
+                        analysis can be conducted by downloading the data from 
+                        the data download tab.  </u>"),
+               "PR"=
+                   HTML("Essa guia permite ao usuário comparar as características 
+                        dos municípios com piores ou melhores epidemias de 
+                        COVID-19. Usando a guia suspenso, você pode selecionar
+                        para visualizar os dados nacionais ou os dados de um 
+                        estado específico. </br> </br>
+                        Os gráficos de barras mostram
+                        diferenças na incidência padronizada por idade em
+                        diferentes pontos da epidemia para subconjuntos de 
+                        municípios agrupados de acordo com características 
+                        particulares. A linha vertical mostra o intervalo dos
+                        dados para cada subconjunto e o retângulo mostra o valor
+                        do intervalo mediano e interquartil. Os conjuntos de 
+                        linhas mostram os dados em intervalos de 10 dias (de 10 
+                        a 70 dias) a partir do dia em que uma incidência de 1 
+                        caso por 1.000 pessoas foi relatada em um município.
+                        </br> </br>
+                        Por exemplo, o gráfico abaixo mostra a associação 
+                        entre a densidade populacional da área e a incidência. 
+                        Quanto maior a diferença entre as barras, maior a 
+                        diferença na epidemia de Covid-19 entre áreas de alta e
+                        baixa densidade populacional. Uma análise mais detalhada 
+                        pode ser realizada baixando os dados na guia de download
+                        de dados. </u>")
+        )
+    })
+    
+    output$text13 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("If you wish to carry out your own analyses on the
+                   standardised data you can download the full dataset in comma
+                   separated variable (csv) format from here. A description of 
+                   the variables included is shown below. 
+                   </br><b> area - </b> Municipality name and State (2 letter 
+                   code). (NB UTF-8 encoding should be used to correctly format
+                   the place names) 
+                   </br><b> date_end - </b> Date of data update (there is one
+                   row per municipality per day) 
+                   </br><b> cum_cases - </b> Cumulative case count 
+                   </br><b> cum_deaths - </b> Cumulative death count 
+                   </br><b> bed_occ_2_5,bed_occ_50 & bed_occ_97_5 - </b> 2.5%, 
+                   50% & 97.5% credible intervals for the predicted number of 
+                   hospital beds occupied by patients with COVID-19 based on 
+                   the cumulative data 
+                   </br><b> itu_bed_occ_2_5,itu_bed_occ_50 & itu_bed_occ_97_5 - </b>
+                   2.5%, 50% & 97.5% credible intervals for the predicted number
+                   of Intensive care unit beds occupied by patients with COVID-19 
+                   based on the cumulative data. 
+                   </br><b> standardised_cases - </b> Age standardised cumulative
+                   case incidence 
+                   </br><b> statdardised_deaths - </b> Age standardised 
+                   cumulative death incidence 
+                   </br><b> stan_bed_occ_2_5,stan_bed_occ_50 & 
+                   stan_bed_occ_97_5 - </b>
+                   2.5% 50% & 97.5% credible intervals for the predicted number 
+                   of hospital beds occupied by patients with COVID-19 based on
+                   the age standardised data. 
+                   </br><b> stan_itu_bed_occ_2_5,stan_itu_bed_occ_50 & 
+                   stan_itu_bed_occ_97_5 - </b> 2.5% 50% & 97.5% credible 
+                   intervals for the predicted number of Intensive care unit 
+                   beds occupied by patients with COVID-19 based on the age 
+                   standardised data. 
+                   </br><b> region - </b> State (2 letter code) 
+                   </br><b> popden - </b> Population Density (individuals per 
+                   km<sup>2</sup>) 
+                   </br><b> sdi - </b> Social demogrpahic index for the 
+                   mucipality (See Covariates in the 'About this site' - tab)
+                   </br><b> piped_water - </b> Proportion of population in the 
+                   municipality with access to a piped water supply
+                   </br><b> sewage_or_septic - </b> Proportion of population in 
+                   the municipality with access to sewage system or a septic 
+                   tank 
+                   </br><b> travel_time - </b> The land-based travel time between 
+                   the most densely populated area in the municipality and the
+                   most densely populated area in the corresponding State
+                   </br><b> x - </b> The longitude of the municiplaity in decimal 
+                   degrees 
+                   </br><b> y - </b> The latitude of the municiplaity in decimal
+                   degrees
+                   </br><b> days_since_start - </b> The number of days since the
+                   age standardised rate was greater than 1 case per 1,000 
+                   residents
+                    </br></br>
+                    The following variables are indicators which are coded 1 if 
+                    the intervention described had been initiated by this date; 
+                    </br><b> awareness_campaigns_start - </b> COVID-19 awareness 
+                    campaigns 
+                    </br><b> border_closure_start - </b> International border 
+                    closures 
+                    </br><b> domestic_travel_restrictions_start - </b> Domestic 
+                    travel restrictions 
+                    </br><b> economic_measures_start - </b> Economic interventions
+                    </br><b> border_health_screening_start - </b> Health screening 
+                    at international borders
+                    </br><b> international_flight_suspension_start - </b> 
+                    International flights suspended 
+                    </br><b> isolation_quarrantine_start - </b>  Isolation and 
+                    quarantine for those infected with COVID-19
+                    </br><b> limit_on_public_gatherings_start -  </b> A limit 
+                    was placed on public gatherings 
+                    </br><b> schools_closure_start - </b>  School closures 
+                    initiated 
+                    </br><b> workplace_closure_start - </b>  Workplace closures 
+                    initiated </u>"),
+               "PR"=
+                   HTML("Se você deseja realizar suas próprias análises nos 
+                        dados padronizados, pode fazer o download do conjunto 
+                        de dados completo em formato de variável separada por
+                        vírgula (csv) aqui. Uma descrição das variáveis 
+                        incluídas é mostrada abaixo.
+                        </br><b> area </b> - Nome e estado do município (código
+                        de 2 letras). (A codificação NB UTF-8 deve ser usada 
+                        para formatar corretamente os nomes dos locais)
+                        </br><b> date_end </b> - Data da atualização dos dados (há 
+                        uma linha por município por dia)
+                        </br><b> cum_cases </b> - Contagem acumulada de casos
+                        </br><b> cum_deaths </b> - Contagem de óbitos acumulados
+                        </br><b> bed_occ_2_5,bed_occ_50 & bed_occ_97_5 </b> - 
+                        Intervalos credíveis de 2,5% 50% e 97,5% para o número
+                        previsto de leitos hospitalares ocupados por pacientes 
+                        com COVID-19 com base nos dados acumulados 
+                        </br><b> itu_bed_occ_2_5,itu_bed_occ_50 & 
+                        itu_bed_occ_97_5 </b> - Intervalos credíveis de 2,5%; 
+                        50% e 97,5% para o número previsto de leitos de unidades 
+                        de terapia intensiva (UTI) ocupados por pacientes com 
+                        COVID-19 com base nos dados acumulados.
+                        </br><b> standardised_cases </b> - Incidência cumulativa 
+                        de casos padronizada por idade
+                        </br><b> statdardised_deaths </b> - Incidência de óbito
+                        cumulativa padronizada por idade
+                        </br><b> stan_bed_occ_2_5,stan_bed_occ_50 & 
+                        stan_bed_occ_97_5 </b> - Intervalos credíveis de 2,5%; 
+                        50% e 97,5% para o número previsto de leitos hospitalares 
+                        ocupados por pacientes com COVID-19 com base nos dados 
+                        padronizados por idade.
+                        </br><b> stan_itu_bed_occ_2_5,stan_itu_bed_occ_50 &
+                        stan_itu_bed_occ_97_5 </b> - Intervalos credíveis de 2,5%; 
+                        50% e 97,5% para o número previsto de leitos de unidades 
+                        de terapia intensiva ocupados por pacientes com COVID-19 
+                        com base nos dados padronizados por idade
+                        </br><b> region </b> - Estados (código de duas letras)
+                        </br><b> popden </b> - Densidade populacional (indivíduos 
+                        por km<sup>2</sup>)
+                        </br><b> sdi </b> - Índice sociodemográfico do município 
+                        (consulte Covariáveis na guia 'Sobre este site')
+                        </br><b> piped_water </b> - Proporção da população no 
+                        município com acesso a um abastecimento de água encanada.
+                        </br><b> sewage_or_septic </b> - Proporção da população 
+                        no município com acesso ao sistema de esgoto ou a uma 
+                        fossa séptica
+                        </br><b> travel_time </b> - O tempo de viagem terrestre 
+                        entre a área mais densamente povoada do município e a 
+                        área mais densamente povoada do Estado correspondente. 
+                        </br><b> x </b> - longitude do município em graus 
+                        decimais
+                        </br><b> y </b>- latitude do município em graus decimais.
+                        </br><b> days_since_start </b> - O número de dias desde 
+                        a taxa padronizada de idade superior a 1 caso por 1.000 
+                        residentes
+                        </br></br>
+                        As seguintes variáveis são indicadores codificados em 1 
+                        se a intervenção descrita tivesse sido iniciada até essa 
+                        data;
+                        </br><b> awareness_campaigns_start </b> - Campanhas de
+                        conscientização sobre COVID-19
+                        </br><b> border_closure_start </b> - Fechamento de
+                        fronteiras internacionais
+                        </br><b> domestic_travel_restrictions_start </b> - 
+                        Restrições de viagens domésticas 
+                        </br><b> economic_measures_start </b> - Intervenções 
+                        econômicas 
+                        </br><b> border_health_screening_start </b> - Rastreio 
+                        de saúde nas fronteiras internacionais
+                        </br><b> international_flight_suspension_start </b> - 
+                        Voos internacionais suspensos
+                        </br><b> isolation_quarrantine_start </b> - Isolamento 
+                        e quarentena para aqueles infectados com COVID-19
+                        </br><b> limit_on_public_gatherings_start </b>
+                        - Foi estabelecido um limite para reuniões públicas
+                        </br><b> schools_closure_start </b> - Início do
+                        fechamento da escola
+                        </br><b> workplace_closure_start </b> - Fechos de
+                        trabalho iniciados </u>")
+        )
+    })
+    
     
     spatial_reactive_db <- reactive({
         
@@ -1097,15 +1497,16 @@ server <- function(input, output, session) {
         
         if(input$outcome_select2=="Hospital bed occupancy / Ocupação de leitos hospitalares") {
             x_dat %<>%
-                dplyr::rename(outcome=Bed_occ_50) %>%
+                dplyr::rename(outcome=Stan_Bed_occ_50) %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
         } else if(input$outcome_select2=="Cumulative death incidence / Incidência acumulada de óbitos") {
             x_dat %<>%
-                dplyr::rename(outcome=Deaths_50)  %>%
-                dplyr::mutate(Region=str_sub(Area, start= -2))
+                dplyr::rename(outcome=standardised_deaths)  %>%
+                dplyr::mutate(Region=str_sub(Area, start= -2),
+                              outcome=outcome  * 1000)
         } else if(input$outcome_select2=="ITU bed occupancy / Ocupação de leitos de UTI"){
             x_dat %<>%
-                dplyr::rename(outcome=ITU_Bed_occ_50)  %>%
+                dplyr::rename(outcome= Stan_ITU_Bed_occ_50)  %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
         } else if(input$outcome_select2=="Cumulative case incidence / Incidência acumulada de casos"){
             x_dat %<>%
@@ -1155,7 +1556,6 @@ server <- function(input, output, session) {
             x_label <- "Dias desde o início do surto (incidência acima de 1 caso por 10.000 residentes)"
         }
         
-        
         outdata <- list(of1=x_dat,
                         of2=x_label,
                         of3=OB_sum,
@@ -1188,7 +1588,7 @@ server <- function(input, output, session) {
         g1 <-  ggplot(area_db1()$of1, aes(x = Days_since_start,
                                           y = outcome,
                                           group = Area,
-                                          # use "text" for hovering
+                                          # use "text" for hovering with plotly
                                           # text = paste0(input$outcome_select2,
                                           #               ": ",
                                           #               round(outcome,2)))
@@ -1208,11 +1608,15 @@ server <- function(input, output, session) {
             geom_line(data = area_db1()$of1[area_db1()$of1$Name == input$region_select, ],
                       color = "orange", size=0.3) +
             geom_line(data = area_db1()$of1[area_db1()$of1$Area == input$area_select, ],
-                      color = "#ef6f6a", size=0.9) +
+                      color = "#ef6f6a", size=1.2) +
             labs(y=area_db1()$of5) +
             ggtitle(input$outcome_select2) +
             theme(plot.title = element_text(hjust = 0.5)) +
-            scale_y_continuous(trans='log10') 
+            scale_y_continuous(trans='log10') +
+            geom_label(data = area_db1()$of1[area_db1()$of1$Area == input$area_select, ] %>% 
+                          filter(date_end == last(as.Date(date_end))), 
+                      aes(label = Area), 
+                      color = "#ef6f6a")
         g1
     })
     
@@ -1282,49 +1686,6 @@ server <- function(input, output, session) {
     
     
     plotdb <- reactive({
-        # preprocessing to re-route beginign of the epidemic depending on chosen area
-        z_dat <- re.route.origin(BigStandard$standardised_incidence,
-                                 Zerotrim = FALSE)
-        
-        # and add intervention timing data
-        z_dat <- district.start.date.find(z_dat, BigStandard$Intervention)
-        
-        # all interventions
-        int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
-        int_opts = int_opts[!int_opts == "Days_since_start"]
-        
-        
-        # loop through interventions aggregating at the area level
-        int_first <- matrix(NA, nrow = length(unique(z_dat$Area)),
-                            ncol = length(int_opts))
-        for(i in 1:length(int_opts)){
-            int_first[, i] = aggregate(as.formula(paste0(int_opts[i], 
-                                                         " ~ Area")), 
-                                       data = z_dat, FUN = min)[, 2]
-        }
-        colnames(int_first)= gsub("_start", "", int_opts)
-        
-        
-        # reformat into a data frame
-        int_first = data.frame(Area = sort(unique(z_dat$Area)),
-                               int_first)
-        
-        # now reshape into long format
-        Int_long <- reshape(int_first,
-                            times = colnames(int_first)[-1],
-                            varying = list(2:ncol(int_first)),
-                            direction = "long")
-        
-        # formatting
-        Int_long$time = as.character(Int_long$time)
-        Int_long$time = gsub("_", " ", Int_long$time)
-        
-        # reordering to maintain alphabetical order
-        Int_long$time <- factor(Int_long$time,
-                                levels = sort(unique(Int_long$time)),ordered = TRUE)
-        
-        # standardise intervention column name
-        colnames(Int_long)[3] = "Intervention_type"
         
         # precompute a variable that states whether interventions in the local area were later or earlier than the mean
         E_L <- Int_long[Int_long$Area ==
@@ -1450,156 +1811,8 @@ server <- function(input, output, session) {
         }
     })
     
-    # area_db2 <- reactive({
-    #     
-    #     s_dat <- plotdb()$of4
-    #     
-    #     s_dat$Area   <- as.character(s_dat$Area)
-    #     s_dat %<>% inner_join(states)
-    #     
-    #     if(input$region_select2 != "National"){
-    #         trend_s_dat <- s_dat[s_dat$Name == input$region_select2, ]
-    #     }else{
-    #         trend_s_dat <- s_dat
-    #     }
-    #     
-    #     # and remove municipalities with NAs in their covariate data
-    #     trend_s_dat <- trend_s_dat[!is.na(trend_s_dat$SDI), ]
-    #     
-    #     popdenDF <- aggregate(popden ~ Area, max, data=trend_s_dat)
-    #     #head(popdenDF)
-    #     popdenQuartile<-quantile(popdenDF$popden, probs=(0:4)/4)
-    #     popdenDF$popdenQuartile <- cut(popdenDF$popden, popdenQuartile, 
-    #                                    include.lowest=TRUE)
-    #     Q_labels <- paste0("Q", 1:4)
-    #     Q_labels[1] = paste0(Q_labels[1], " (Lowest density)")
-    #     Q_labels[4] = paste0(Q_labels[4], " (Highest density)")
-    #     levels(popdenDF$popdenQuartile) <- Q_labels
-    #     popdenDF$popdenQuartile<-as.character(popdenDF$popdenQuartile)
-    #     #table(popdenDF$popdenQuartile, exclude=NULL)
-    #     
-    #     SDIDF<-aggregate(SDI ~ Area, max, data=trend_s_dat)
-    #     #head(SDIDF)
-    #     SDIQuartile<-quantile(SDIDF$SDI, probs=(0:4)/4)
-    #     SDIDF$SDIQuartile <- cut(SDIDF$SDI, SDIQuartile, include.lowest=TRUE)
-    #     Q_labels <- paste0("Q", 1:4)
-    #     Q_labels[1] = paste0(Q_labels[1], " (Least developed)")
-    #     Q_labels[4] = paste0(Q_labels[4], " (Most developed)")
-    #     levels(SDIDF$SDIQuartile) <- Q_labels
-    #     SDIDF$SDIQuartile<-as.character(SDIDF$SDIQuartile)
-    #     #table(SDIDF$SDIQuartile, exclude=NULL)
-    #     
-    #     PipedDF                       <- aggregate(Piped_water ~ Area, max, 
-    #                                                data=trend_s_dat)
-    #     PipedQuartile                 <- quantile(PipedDF$Piped_water,
-    #                                               probs=(0:4)/4)
-    #     PipedDF$PipedQuartile         <- cut(PipedDF$Piped_water,
-    #                                          PipedQuartile, 
-    #                                          include.lowest=TRUE)
-    #     Q_labels                      <- paste0("Q", 1:4)
-    #     Q_labels[1]                   <- paste0(Q_labels[1],
-    #                                             " (Least piped water)")
-    #     Q_labels[4]                   <- paste0(Q_labels[4],
-    #                                             " (Most piped water)")
-    #     levels(PipedDF$PipedQuartile) <- Q_labels
-    #     PipedDF$PipedQuartile         <- as.character(PipedDF$PipedQuartile)
-    #     
-    #     SewDF                     <- aggregate(Sewage_or_septic ~ Area,
-    #                                            max, data=trend_s_dat)
-    #     SewQuartile               <- quantile(SewDF$Sewage_or_septic,
-    #                                           probs=(0:4)/4)
-    #     SewDF$SewQuartile         <- cut(SewDF$Sewage_or_septic, 
-    #                                      SewQuartile, 
-    #                                      include.lowest=TRUE)
-    #     Q_labels                  <- paste0("Q", 1:4)
-    #     Q_labels[1]               <- paste0(Q_labels[1], 
-    #                                         " (Least sewerage)")
-    #     Q_labels[4]               <- paste0(Q_labels[4], 
-    #                                         " (Most sewerage)")
-    #     levels(SewDF$SewQuartile) <- Q_labels
-    #     SewDF$SewQuartile         <- as.character(SewDF$SewQuartile)
-    #     
-    #     TravDF                      <- aggregate(Travel_time ~ Area, 
-    #                                              max, data=trend_s_dat)
-    #     TravQuartile                <- quantile(TravDF$Travel_time, 
-    #                                             probs=(0:4)/4)
-    #     TravDF$TravQuartile         <- cut(TravDF$Travel_time, 
-    #                                        TravQuartile, 
-    #                                        include.lowest=TRUE)
-    #     Q_labels                    <- paste0("Q", 1:4)
-    #     Q_labels[1]                 <- paste0(Q_labels[1], 
-    #                                           " (Least accessible)")
-    #     Q_labels[4]                 <- paste0(Q_labels[4],
-    #                                           " (Most accessible)")
-    #     levels(TravDF$TravQuartile) <- Q_labels
-    #     TravDF$TravQuartile         <- as.character(TravDF$TravQuartile)
-    #     
-    #     
-    #     #dim(AreaProfilesDF)
-    #     AreaProfilesDF <- merge(x=trend_s_dat, y=popdenDF,
-    #                             by="Area", all.x=T, all.y=F)
-    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=SDIDF, 
-    #                             by="Area", all.x=T, all.y=F)
-    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=PipedDF,
-    #                             by="Area", all.x=T, all.y=F)
-    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=SewDF, 
-    #                             by="Area", all.x=T, all.y=F)
-    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=TravDF, 
-    #                             by="Area", all.x=T, all.y=F)
-    #     
-    #     TimePointsVector <- as.numeric(names(table(
-    #         trend_s_dat$Days_since_start %/% 10)))
-    #     TimePointsVector <- 10*TimePointsVector[TimePointsVector>0]
-    #     
-    #     QuartileTimeDF<-AreaProfilesDF[AreaProfilesDF$Days_since_start %in% 
-    #                                        TimePointsVector,
-    #                                    c("Area", "Days_since_start",
-    #                                      "standardised_cases",
-    #                                      "popdenQuartile", 
-    #                                      "SDIQuartile",
-    #                                      "PipedQuartile",
-    #                                      "SewQuartile", 
-    #                                      "TravQuartile")]
-    #     
-    #     # filter out timepoints that don't have all 4 quartiles
-    #     missingQs        <- table(QuartileTimeDF$Days_since_start,
-    #                               QuartileTimeDF$popdenQuartile)
-    #     missingQsDelete  <- as.numeric(rownames(missingQs)[apply(
-    #         missingQs, 1, function(x) any(x == 0))])
-    #     QuartileTimeDF   <- QuartileTimeDF[!(
-    #         QuartileTimeDF$Days_since_start %in% missingQsDelete), ]
-    #     
-    #     # bp_ofile <- list(of1=QuartileTimeDF,
-    #     #                  of2=SDIQuartile,
-    #     #                  of3=PipedQuartile,
-    #     #                  of4=SewQuartile,
-    #     #                  of5=TravQuartile)
-    # })
-    # 
+    
     output$p3 <- renderPlot({
-        
-        # g3 <- ggplot(area_db2(),
-        #              aes(x=factor(Days_since_start),
-        #                  y=standardised_cases,
-        #                  group=interaction(factor(Days_since_start),
-        #                                    factor(popdenQuartile)))) +
-        #     geom_boxplot(aes(fill=factor(popdenQuartile)), outlier.shape=NA) +
-        #     labs(x = "Days since start",
-        #          y = "Cumulative ncidence per 1,000 people \n(log scale, outliers omitted)") +
-        #     scale_y_log10() +
-        #     theme_minimal() +
-        #     scale_fill_brewer(palette="BuPu",name = "Area population density\n (Quartiles)") +
-        #     # ggtitle("Population density") +
-        #     theme(plot.title = element_text(hjust = 0.5)) +
-        #     theme(plot.title = element_text(size=22)) +
-        #     theme(legend.text=element_text(size=12),
-        #           legend.title=element_text(size=12)) +
-        #     theme(axis.text.x = element_text(size=12),
-        #           axis.text.y = element_text(size=12),
-        #           axis.title.x = element_text(size=12),
-        #           axis.title.y = element_text(size=12)) +
-        #     theme(strip.text.x = element_text(size = 14))
-        # 
         
         if(input$region_select2 != "National"){
             myRegion <- unique(Brazil_cases_sp$Region[Brazil_cases_sp$Name == 
