@@ -58,7 +58,7 @@ if(!require(sf)) install.packages("sf", repos = "http://cran.us.r-project.org")
 if(!require(rdrop2)) install.packages("rdrop2", repos = "http://cran.us.r-project.org")
 
 # Load global variables
-app_title <- "COVID-19 Local Information Comparison (CLIC Brazil)ire"
+app_title <- "COVID-19 Local Information Comparison (CLIC Brazil)"
 
 options(shiny.sanitize.errors = TRUE)
 
@@ -92,8 +92,12 @@ try({
                   overwrite=TRUE)
 })
 
+# names(Trends_plot_list)[1] <- "National"
+
 # Load in pre-computed BigWrap dataset
 load(fetch_latest(fileDir = "input_data/", type = "BigStandard"))
+
+load(file.path("input_data/Trends_plots2020_06_23.RData"))
 
 # Load State names and abbreviations
 states <- readRDS(file.path("input_data", "statesBR.RDS")) %>%
@@ -119,8 +123,10 @@ Brazil_cases_sp <- Brazil_cases_sp[Brazil_cases_sp$date_end <= DateUntil, ]
 Brazil_cases_sp <- Brazil_cases_sp[!is.na(Brazil_cases_sp$X), ]
 
 # trim to just latest number of cumulative cases / incidence
-Brazil_cases_cum_cases <- aggregate(cum_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
-# Brazil_cases_cum_incid <- aggregate(standardised_cases ~ Area + X + Y, data = Brazil_cases_sp, FUN = max)
+Brazil_cases_cum_cases <- aggregate(cum_cases ~ Area + X + Y, 
+                                    data = Brazil_cases_sp, FUN = max)
+# Brazil_cases_cum_incid <- aggregate(standardised_cases ~ Area + X + Y, 
+# data = Brazil_cases_sp, FUN = max)
 
 # make sf object
 # Brazil_cases_cum_cases <- st_as_sf(Brazil_cases_cum_cases, coords = c("X", "Y"))
@@ -148,6 +154,26 @@ rm(Brazil_cases_sp2)
 # c_dat        <- BigStandard
 # names(c_dat) <- substr(names(c_dat), 1, nchar(names(c_dat))-3)
 
+# preprocessing to re-route beginign of the epidemic depending 
+# on chosen area
+x_dat <- re.route.origin(BigStandard$standardised_incidence)
+
+# and add intervention timing data
+x_dat <- district.start.date.find(x_dat, BigStandard$Intervention)
+
+# Filter to only those areas with >50 cum_cases
+# x_dat %<>% dplyr::filter(cum_cases > 400)
+
+x_dat$Area   <- as.character(x_dat$Area)
+# x_dat$Region <- str_sub(x_dat$Area, start= -2)
+x_dat %<>% inner_join(states) 
+
+timeSUM    <- cbind(aggregate(standardised_cases ~ Days_since_start,
+                              data=x_dat, FUN=quantile, probs = 0.33)[, 2],
+                    aggregate(standardised_cases ~ Days_since_start,
+                              data=x_dat, FUN=quantile, probs = 0.5)[, 2],
+                    aggregate(standardised_cases ~ Days_since_start,
+                              data=x_dat, FUN=quantile, probs = 0.66)[, 2])
 
 ui <- navbarPage(
     theme       = shinytheme("flatly"),
@@ -162,7 +188,7 @@ ui <- navbarPage(
     ),
     windowTitle = app_title,
     
-    tabPanel(title="National overview",
+    tabPanel(title=uiOutput("tab_title1"),
              
              div(
                  class="outer",
@@ -172,7 +198,7 @@ ui <- navbarPage(
                                height=700),
                  
                  absolutePanel(
-                     top = 40, 
+                     top = 140, 
                      right = 380,
                      width = 90,
                      draggable = FALSE,
@@ -183,16 +209,16 @@ ui <- navbarPage(
                  absolutePanel(id = "controls", 
                                top = 50, 
                                left = 20,
-                               width = 250,
+                               width = 350,
                                draggable = FALSE,
                                prettyRadioButtons('outcome_select',
                                                   label=em(h4(uiOutput("outcome_label"),
                                                               align="center")),
-                                                  choices = c('Case incidence',
-                                                              'Cases',
-                                                              "Death incidence",
-                                                              "Deaths"),
-                                                  selected = 'Case incidence',
+                                                  choices = c('Case incidence/Incidência de casos',
+                                                              'Cases/Casos',
+                                                              "Death incidence/Incidência de óbitos",
+                                                              "Deaths/Óbitos"),
+                                                  selected = 'Case incidence/Incidência de casos',
                                                   shape = "round",
                                                   animation = "jelly",
                                                   plain = TRUE,
@@ -223,7 +249,7 @@ ui <- navbarPage(
                                
                                
                                sliderInput("plot_date",
-                                           label = h5("Show cumulative cases before", 
+                                           label = h5(uiOutput("date_label1"), 
                                                       align="center"),
                                            min = as.Date(min_date,"%Y-%m-%d"),
                                            max = as.Date(max_date,"%Y-%m-%d"),
@@ -248,15 +274,15 @@ ui <- navbarPage(
              )
     ),
     
-    tabPanel(title="Local area comparison",
+    tabPanel(title=uiOutput("tab_title2"),
              
              sidebarLayout(
                  sidebarPanel(
-                     width=3,
+                     width=4,
                      
                      # htmlOutput("state_selector"),
                      pickerInput("region_select",
-                                 h5("Select a State"),
+                                 h5(uiOutput("state_label1")),
                                  choices = sort(unique(as.character(Brazil_cases_sp$Name))),
                                  selected = "Sao Paulo",
                                  multiple = FALSE),
@@ -264,12 +290,12 @@ ui <- navbarPage(
                      htmlOutput("area_selector"),
                      
                      pickerInput("outcome_select2",
-                                 h5("Select a measure"),
-                                 choices = c("Cumulative case incidence", 
-                                             "Cumulative death incidence",
-                                             "Hospital bed occupancy",
-                                             "ITU bed occupancy"),
-                                 selected = c("Cumulative case incidence"),
+                                 h5(uiOutput("measure_label1")),
+                                 choices = c("Cumulative case incidence / Incidência acumulada de casos", 
+                                             "Cumulative death incidence / Incidência acumulada de óbitos",
+                                             "Hospital bed occupancy / Ocupação de leitos hospitalares",
+                                             "ITU bed occupancy / Ocupação de leitos de UTI"),
+                                 selected = c("Cumulative case incidence / Incidência acumulada de casos"),
                                  multiple = FALSE),
                      
                      uiOutput("outcome_slider"),
@@ -281,24 +307,24 @@ ui <- navbarPage(
                  
                  mainPanel(
                      # tabsetPanel(
-                         tabPanel("",
-                                  plotlyOutput("p1", height="400px"),
-                                  imageOutput("legend", height="50px"),
-                                  htmlOutput("selected_text"),
-                                  br(), br(),
-                                  # verbatimTextOutput("rawtable2"),
-                                  plotOutput("p2",
-                                             height="400px"),
-                                  br(),
-                                  htmlOutput("intervention_text"),
-                                  br())
-                         
+                     tabPanel("",
+                              plotOutput("p1", height="400px"),
+                              imageOutput("legend", height="50px"),
+                              htmlOutput("selected_text"),
+                              br(), br(),
+                              # verbatimTextOutput("rawtable2"),
+                              plotOutput("p2",
+                                         height="400px"),
+                              br(),
+                              htmlOutput("intervention_text"),
+                              br())
+                     
                      # )
                  )
              )
     ),
     
-    tabPanel(title="Trends",
+    tabPanel(title=uiOutput("tab_title3"),
              
              tags$style(type="text/css",
                         ".shiny-output-error { visibility: hidden; }",
@@ -310,7 +336,7 @@ ui <- navbarPage(
                      width=3,
                      
                      pickerInput("region_select2",
-                                 h5("Select National or a State"),
+                                 h5(uiOutput("national_state_select")),
                                  choices = c("National",
                                              sort(
                                                  unique(
@@ -333,45 +359,30 @@ ui <- navbarPage(
                  
                  mainPanel(
                      # tabsetPanel(
-                         tabPanel("",
-                                  plotOutput("p3",
-                                             height="900px"),
-                                  br(),
-                                  tags$li("Currently there is a
-                                          trend towards higher incidence 
-                                          rates in lower density areas."),
-                                  tags$li("Currently there are no clear 
-                                          differences between in incidence 
-                                          with higher or lower development."),
-                                  tags$li("CCurrently there is a trend towards
-                                          higher incidence rates in areas with 
-                                          less access to piped water."),
-                                  tags$li("Currently there is a trend towards
-                                          higher incidence rates in areas with 
-                                          less access to the sewerage network."),
-                                  # tags$li("Currently more isolated regions 
-                                  #         (longer travel time) have higher 
-                                  #         incidence outbreaks, particularly 
-                                  #         later on in the epidemic."),
-                                  br(), br()
-                                  
-                         )
+                     tabPanel("",
+                              plotOutput("p3",
+                                         height="900px"),
+                              br(),
+                              uiOutput("list1"),
+                              br(), br()
+                              
+                     )
                      # )
                  )
              )
     ),
     
-    tabPanel(title="Model-based forecast",
+    tabPanel(title=uiOutput("tab_title4"),
              
              tags$style(type="text/css",
                         ".shiny-output-error { visibility: hidden; }",
                         ".shiny-output-error:before { visibility: hidden; }"
              ),
-             tags$h5("Available soon"),
+             tags$h5(uiOutput("available_label")),
     ),
     
-    tabPanel(title="Download data",
-             tags$h4("Download local area data"),
+    tabPanel(title=uiOutput("tab_title5"),
+             tags$h4(uiOutput("download_data_label")),
              numericInput("maxrows",
                           uiOutput("rows_label"), 15),
              downloadButton("downloadCsv",
@@ -382,23 +393,11 @@ ui <- navbarPage(
     ),
     
     
-    tabPanel(title="About this site",
+    tabPanel(title=uiOutput("tab_title6"),
              tags$div(
-                 tags$h4("Data Sources"),
-                 tags$h5("(1) COVID-19 Cases"),
-                 "The data on COVID-19 cases aggregated by municipality is",
-                 "obtained from the Brasil.IO COVID-19 project repository",
-                 "which is updated on a daily basis. Municipality is the",
-                 "second administrative level in Brazil (below state).",
-                 "There are 5,570 municipalities in Brazil with an average",
-                 "of 37,728 inhabitants per municipality. This dataset",
-                 "contains confirmed COVID-19 cases and deaths obtained from",
-                 "the bulletins of the State Health Secretariats across the",
-                 "country. Data is obtained from this source and our",
-                 "application is updated daily at 09:00 GMT. For more",
-                 "information see:",  
-                 tags$a(href=" https://brasil.io/dataset/covid19/caso_full/",
-                        "brasil.io/dataset"),
+                 tags$h4(uiOutput("data_sources")),
+                 tags$h5(uiOutput("covid_label")),
+                 uiOutput("text1"),
                  tags$br(),
                  tags$h5("(2) Age distribution of COVID cases"),
                  "This was derived from data on notified COVID-19 cases",
@@ -538,8 +537,8 @@ ui <- navbarPage(
                  tags$br(), 
                  tags$li("Identify hotspots of COVID-19disease."),
                  tags$li("Compare the outbreak trajectories between",
-                 "municipalities to understand where the epidemic is",
-                 "growing fastest."),
+                         "municipalities to understand where the epidemic is",
+                         "growing fastest."),
                  tags$li("Assess the socioeconomic drivers of COVID-19 risk."),
                  tags$br(),
                  tags$h4("National Overview tab"),
@@ -641,118 +640,118 @@ ui <- navbarPage(
                  imageOutput("quantiles", 
                              inline=TRUE),
                  tags$br(),tags$br(),
-                
+                 
                  tags$h4("Data download tab"),
-                "If you wish to carry out your own analyses on the standardised",
-                "data you can download the full dataset in comma separated",
-                "variable (csv) format from here. A description of the",
-                "variables included is shown below.",
-                tags$br(),
-                tags$b("area"), 
-                "- Municipality name and State (2 letter code). (NB",
-                "UTF-8 encoding should be used to correctly format the place",
-                "names)",
-                tags$br(),
-                tags$b("date_end"), 
-                "- Date of data update (there is one row per municipality per",
-                "day)",
-                tags$br(),
-                tags$b("cum_cases"),
-                "- Cumulative case count",
-                tags$br(),
-                tags$b("cum_deaths"), 
-                "- Cumulative death count",
-                tags$br(),
-                tags$b("bed_occ_2_5,bed_occ_50 & bed_occ_97_5"),
-                "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                "number of hospital beds occupied by patients with COVID-19",
-                "based on the cumulative data",
-                tags$br(),
-                tags$b("itu_bed_occ_2_5,itu_bed_occ_50 & itu_bed_occ_97_5"),
-                "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                "number of Intensive care unit beds occupied by patients with",
-                "COVID-19 based on the cumulative data.",
-                tags$br(),
-                tags$b("standardised_cases"), 
-                "- Age standardised cumulative case incidence",
-                tags$br(),
-                tags$b("statdardised_deaths"), 
-                "- Age standardised cumulative death incidence",
-                tags$br(),
-                tags$b("stan_bed_occ_2_5,stan_bed_occ_50 & stan_bed_occ_97_5"),
-                "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                "number of hospital beds occupied by patients with COVID-19",
-                "based on the age standardised data.",
-                tags$br(),
-                tags$b("stan_itu_bed_occ_2_5,stan_itu_bed_occ_50 & stan_itu_bed_occ_97_5"),
-                "- 2.5% 50% & 97.5% credible intervals for the predicted",
-                "number of Intensive care unit beds occupied by patients with",
-                "COVID-19 based on the age standardised data.",
-                tags$br(),
-                tags$b("region"),
-                "- State (2 letter code)",
-                tags$br(),
-                tags$b("popden"),
-                "- Population Density (individuals per km2)",
-                tags$br(),
-                tags$b("sdi"), 
-                "- Social demogrpahic index for the mucipality (See Covariates",
-                "in the 'About this site' - tab).",
-                tags$br(),
-                tags$b("piped_water"),
-                "- Proportion of population in the municipality with access",
-                "to a piped water supply.",
-                tags$br(),
-                tags$b("sewage_or_septic"),
-                "- Proportion of population in the municipality with access",
-                "to sewage system or a septic tank",
-                tags$br(),
-                tags$b("travel_time"), 
-                "- The land-based travel time between the most densely",
-                "populated area in the municipality and the most densely",
-                "populated area in the corresponding State x - The longitude",
-                "of the municiplaity in decimal degrees y - The latitude of",
-                "the municiplaity in decimal degrees.",
-                tags$b("days_since_start"),
-                "- The number of days since the age standardised rate was",
-                "greater than 1 case per 1000 residents",
+                 "If you wish to carry out your own analyses on the standardised",
+                 "data you can download the full dataset in comma separated",
+                 "variable (csv) format from here. A description of the",
+                 "variables included is shown below.",
+                 tags$br(),
+                 tags$b("area"), 
+                 "- Municipality name and State (2 letter code). (NB",
+                 "UTF-8 encoding should be used to correctly format the place",
+                 "names)",
+                 tags$br(),
+                 tags$b("date_end"), 
+                 "- Date of data update (there is one row per municipality per",
+                 "day)",
+                 tags$br(),
+                 tags$b("cum_cases"),
+                 "- Cumulative case count",
+                 tags$br(),
+                 tags$b("cum_deaths"), 
+                 "- Cumulative death count",
+                 tags$br(),
+                 tags$b("bed_occ_2_5,bed_occ_50 & bed_occ_97_5"),
+                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
+                 "number of hospital beds occupied by patients with COVID-19",
+                 "based on the cumulative data",
+                 tags$br(),
+                 tags$b("itu_bed_occ_2_5,itu_bed_occ_50 & itu_bed_occ_97_5"),
+                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
+                 "number of Intensive care unit beds occupied by patients with",
+                 "COVID-19 based on the cumulative data.",
+                 tags$br(),
+                 tags$b("standardised_cases"), 
+                 "- Age standardised cumulative case incidence",
+                 tags$br(),
+                 tags$b("statdardised_deaths"), 
+                 "- Age standardised cumulative death incidence",
+                 tags$br(),
+                 tags$b("stan_bed_occ_2_5,stan_bed_occ_50 & stan_bed_occ_97_5"),
+                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
+                 "number of hospital beds occupied by patients with COVID-19",
+                 "based on the age standardised data.",
+                 tags$br(),
+                 tags$b("stan_itu_bed_occ_2_5,stan_itu_bed_occ_50 & stan_itu_bed_occ_97_5"),
+                 "- 2.5% 50% & 97.5% credible intervals for the predicted",
+                 "number of Intensive care unit beds occupied by patients with",
+                 "COVID-19 based on the age standardised data.",
+                 tags$br(),
+                 tags$b("region"),
+                 "- State (2 letter code)",
+                 tags$br(),
+                 tags$b("popden"),
+                 "- Population Density (individuals per km2)",
+                 tags$br(),
+                 tags$b("sdi"), 
+                 "- Social demogrpahic index for the mucipality (See Covariates",
+                 "in the 'About this site' - tab).",
+                 tags$br(),
+                 tags$b("piped_water"),
+                 "- Proportion of population in the municipality with access",
+                 "to a piped water supply.",
+                 tags$br(),
+                 tags$b("sewage_or_septic"),
+                 "- Proportion of population in the municipality with access",
+                 "to sewage system or a septic tank",
+                 tags$br(),
+                 tags$b("travel_time"), 
+                 "- The land-based travel time between the most densely",
+                 "populated area in the municipality and the most densely",
+                 "populated area in the corresponding State x - The longitude",
+                 "of the municiplaity in decimal degrees y - The latitude of",
+                 "the municiplaity in decimal degrees.",
+                 tags$b("days_since_start"),
+                 "- The number of days since the age standardised rate was",
+                 "greater than 1 case per 1000 residents",
                  
                  tags$br(),tags$br(),
                  
-                tags$b("The following variables are indicators which are coded",
-                       "1 if the intervention described had been initiated by",
-                       "this date;"),
-                
-                tags$br(),
-                tags$b("awareness_campaigns_start"),
-                "- COVID awareness campaigns",
-                tags$br(),
-                tags$b("border_closure_start"),
-                "- International border closures",
-                tags$br(),
-                tags$b("domestic_travel_restrictions_start"),
-                "- Domestic travel restrictions",
-                tags$br(),
-                tags$b("economic_measures_start"),
-                "- Economic interventions",
-                tags$br(),
-                tags$b("border_health_screening_start"),
-                "- Health screening at international borders",
-                tags$br(),
-                tags$b("international_flight_suspension_start"),
-                "- International flights suspended",
-                tags$br(),
-                tags$b("isolation_quarrantine_start"),
-                "- Isolation and quarantine for those infected with COVID-19",
-                tags$br(),
-                tags$b("limit_on_public_gatherings_start"),
-                "- A limit was placed on public gatherings",
-                tags$br(),
-                tags$b("schools_closure_start"),
-                "- School closures initiated",
-                tags$br(),
-                tags$b("workplace_closure_start"),
-                "- Workplace closures initiated",
+                 tags$b("The following variables are indicators which are coded",
+                        "1 if the intervention described had been initiated by",
+                        "this date;"),
+                 
+                 tags$br(),
+                 tags$b("awareness_campaigns_start"),
+                 "- COVID awareness campaigns",
+                 tags$br(),
+                 tags$b("border_closure_start"),
+                 "- International border closures",
+                 tags$br(),
+                 tags$b("domestic_travel_restrictions_start"),
+                 "- Domestic travel restrictions",
+                 tags$br(),
+                 tags$b("economic_measures_start"),
+                 "- Economic interventions",
+                 tags$br(),
+                 tags$b("border_health_screening_start"),
+                 "- Health screening at international borders",
+                 tags$br(),
+                 tags$b("international_flight_suspension_start"),
+                 "- International flights suspended",
+                 tags$br(),
+                 tags$b("isolation_quarrantine_start"),
+                 "- Isolation and quarantine for those infected with COVID-19",
+                 tags$br(),
+                 tags$b("limit_on_public_gatherings_start"),
+                 "- A limit was placed on public gatherings",
+                 tags$br(),
+                 tags$b("schools_closure_start"),
+                 "- School closures initiated",
+                 tags$br(),
+                 tags$b("workplace_closure_start"),
+                 "- Workplace closures initiated",
                  
                  tags$br(), tags$br(), tags$br()
              )
@@ -762,19 +761,148 @@ ui <- navbarPage(
 )
 
 server <- function(input, output, session) {
-        
-    output$outcome_label = renderText({
+    
+    output$outcome_label <- renderText({
         switch(input$language, "EN"="Select Variable",
-               "PR"="Variable a escoger") 
+               "PR"="Selecionar variável") 
     })
     
+    output$tab_title1 <- renderText({
+        switch(input$language, "EN"="National overview",
+               "PR"="Visão nacional") 
+    })
+    
+    output$date_label1 <- renderText({
+        switch(input$language, "EN"="Show cumulatice cases before",
+               "PR"="Mostrar casos cumulativos antes de") 
+    })
+    
+    output$tab_title2 <- renderText({
+        switch(input$language, "EN"="Local area comparison",
+               "PR"="Comparação de áreas") 
+    })
+    
+    output$state_label1 <- renderText({
+        switch(input$language, "EN"="Select a State",
+               "PR"="Selecione um Estado") 
+    })
+    
+    output$measure_label1 <- renderText({
+        switch(input$language, "EN"="Select a measure",
+               "PR"="Selecione uma métrica") 
+    })
+    
+    output$munip_label1 <- renderText({
+        switch(input$language, "EN"="Select a municipality",
+               "PR"="Selecione um município") 
+    })
+    
+    output$tab_title3 <- renderText({
+        switch(input$language, "EN"="Trends",
+               "PR"="Tendências") 
+    })
+    
+    output$national_state_select <- renderText({
+        switch(input$language, "EN"="Select National or a State",
+               "PR"="Selecione entre Nacional ou Estado") 
+    })
+    
+    output$list1 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("<ul><li>Currently there is a trend towards higher 
+             incidence rates in lower density areas.</li> 
+             <li>Currently there are no clear differences between 
+             in incidence with higher or lower development.</li>
+             <li>Currently there is a trend towards higher
+             incidence rates in areas with less access to piped water.</li>
+             <li>Currently there is a trend towards higher 
+             incidence rates in areas with less access to the 
+             sewerage network.</li></ul>"),
+               "PR"=
+                   HTML("<ul><li>Atualmente há uma tendência para maiores taxas 
+            de incidência em áreas de menor densidade.</li>
+            <li>Atualmente não há diferenças claras entre incidências 
+            e maior ou menor desenvolvimento.</li>
+            <li>Atualmente há uma tendência para maiores taxas de 
+            incidência em áreas com menor acesso à água encanada.</li>
+            <li>Atualmente há uma tendência para maiores taxas de incidência 
+            em áreas com menos acesso à rede de esgoto.</li></ul>")
+        )
+    })
+    
+    output$tab_title4 <- renderText({
+        switch(input$language, "EN"="Model-based forecast",
+               "PR"="Previsão") 
+    })
+    
+    output$available_label <- renderText({
+        switch(input$language, "EN"="Available soon",
+               "PR"="Disponível em breve") 
+    })
+    
+    output$tab_title5 <- renderText({
+        switch(input$language, "EN"="Download data",
+               "PR"="Baixar dados") 
+    })
+    
+    output$download_data_label <- renderText({
+        switch(input$language, "EN"="Download local area data",
+               "PR"="Baixar dados locais") 
+    })
+    
+    output$tab_title6 <- renderText({
+        switch(input$language, "EN"="About this site",
+               "PR"="Sobre este site") 
+    })
+    
+    output$data_sources <- renderText({
+        switch(input$language, "EN"="Data sources",
+               "PR"="Fontes de dados") 
+    })
+    
+    output$covid_label <- renderText({
+        switch(input$language, "EN"="(1) COVID-19 Cases",
+               "PR"="(1) Casos de COVID-19") 
+    })
+    
+    url <- tags$a("brasil.io", href='https://brasil.io/dataset/covid19/caso_full/')
+    
+    output$text1 <- renderUI({
+        switch(input$language, "EN"=
+        HTML("The data on COVID-19 cases aggregated by municipality 
+        is obtained from the Brasil.IO COVID-19 project repository which is, 
+        updated on a daily basis. Municipality is the second administrative, 
+        level in Brazil (below state). There are 5,570 municipalities in, 
+        Brazil with an average of 37,728 inhabitants per municipality., 
+        This dataset contains confirmed COVID-19 cases and deaths obtained,
+        from the bulletins of the State Health Secretariats across the country., 
+        Data is obtained from this source and our application is updated daily, 
+        at 09:00 GMT. For more information see:
+        <a href = 'https://brasil.io/dataset/covid19/caso_full/',>
+             brasil.io </a></u>"),
+        "PR"=
+        HTML("Os dados dos casos COVID-19 agregados por município são,
+             obtidos do repositório do projeto Brasil.IO COVID-19,
+             que é atualizado diariamente. Município é o,
+             segundo nível administrativo no Brasil (abaixo do estado).,
+             Existem 5.570 municípios no Brasil com uma média,
+             de 37.728 habitantes por município. Este conjunto de dados,
+             contém casos confirmados de COVID-19 e mortes obtidas de,
+             boletins das Secretarias Estaduais de Saúde em todo o país,
+             país. Os dados são obtidos dessa fonte e nosso,
+             aplicativo é atualizado diariamente às 09:00 GMT. Para mais,
+             informações, consulte:
+        <a href = 'https://brasil.io/dataset/covid19/caso_full/',>
+        brasil.io </a></u>")
+        )
+    })
     
     spatial_reactive_db <- reactive({
         
         db <- Brazil_cases_sp %>%
             dplyr::filter(date_end <= input$plot_date)
         
-        if (input$outcome_select=="Cases") { 
+        if (input$outcome_select=="Cases/Casos") { 
             
             # trim to just latest number of cumulative cases / incidence
             db <- aggregate(cum_cases ~ Area + X + Y, 
@@ -797,7 +925,7 @@ server <- function(input, output, session) {
             spatial      <- as(db, "Spatial")
             return(spatial)
         }
-        if (input$outcome_select=="Case incidence") { 
+        if (input$outcome_select=="Case incidence/Incidência de casos") { 
             db            <- aggregate(standardised_cases ~ Area + X + Y, 
                                        data = db,
                                        FUN = max)
@@ -808,7 +936,7 @@ server <- function(input, output, session) {
             spatial       <- as(db, "Spatial")
             return(spatial)
         }
-        if (input$outcome_select=="Death incidence") { 
+        if (input$outcome_select=="Death incidence/Incidência de óbitos") { 
             db            <- aggregate(standardised_deaths ~ Area + X + Y, 
                                        data = db,
                                        FUN = max)
@@ -819,7 +947,7 @@ server <- function(input, output, session) {
             spatial       <- as(db, "Spatial")
             return(spatial)
         }
-        if (input$outcome_select=="Deaths") { 
+        if (input$outcome_select=="Deaths/Óbitos") { 
             db            <- aggregate(cum_deaths ~ Area + X + Y, 
                                        data = db,
                                        FUN = max)
@@ -841,7 +969,7 @@ server <- function(input, output, session) {
                                      length = 5))))
         
         pal <- colorNumeric("YlOrBr", 
-                        NULL)
+                            NULL)
         
         # pal <- colorNumeric(palette = "YlGnBu",
         #     domain = quantile(spatial_reactive_db()$outcome)
@@ -894,6 +1022,33 @@ server <- function(input, output, session) {
                                       date_end <= input$plot_date)
     })
     
+    y_lab1 <- reactive({
+        if(input$language=="EN"){
+            return("Cumulative cases")
+        }
+        if(input$language=="PR"){
+            return("Casos acumulados")
+        }
+    })
+    
+    y_lab2 <- reactive({
+        if(input$language=="EN"){
+            return("Municipalities with > 50 cases")
+        }
+        if(input$language=="PR"){
+            return("Municípios com > 50 casos")
+        }
+    })
+    
+    x_lab1 <- reactive({
+        if(input$language=="EN"){
+            return("Date")
+        }
+        if(input$language=="PR"){
+            return("Data")
+        }
+    })
+    
     output$cumulative_plot <- renderPlot({
         p1 <- ggplot(cumulative_reactive_db(), aes(x = date_end, 
                                                    y = cum_cases)) +
@@ -902,7 +1057,7 @@ server <- function(input, output, session) {
             scale_x_date(date_labels = "%b %d",
                          limits = c(min(Brazil_cases_time$date_end),
                                     DateUntil)) +
-            labs(y= "Cumulative cases", x = "Date")
+            xlab(x_lab1()) + ylab(y_lab1())
         
         
         p2 <- ggplot(munic_reactive_db(), aes(x = date_end,
@@ -912,33 +1067,16 @@ server <- function(input, output, session) {
             scale_x_date(date_labels = "%b %d",
                          limits = c(min(Brazil_cases_time$date_end),
                                     DateUntil)) +
-            labs(y="Municipalities with > 50 cases", x="Date")
+            xlab(x_lab1()) + ylab(y_lab2())
         
         ggarrange(p1, p2, nrow=2)
     })
     
     area_db1 <- reactive({
         
-        # preprocessing to re-route beginign of the epidemic depending 
-        # on chosen area
-        x_dat <- re.route.origin(BigStandard$standardised_incidence)
-        
-        # and add intervention timign data
-        x_dat <- district.start.date.find(x_dat, BigStandard$Intervention)
-        
-        x_dat$Area   <- as.character(x_dat$Area)
-        # x_dat$Region <- str_sub(x_dat$Area, start= -2)
-        x_dat %<>% inner_join(states)
-        
         maxDaysSince <- max(x_dat$Days_since_start[x_dat$Area == input$area_select])
         x_dat_com    <- x_dat[x_dat$Days_since_start <= maxDaysSince, ]
         
-        timeSUM    <- cbind(aggregate(standardised_cases ~ Days_since_start,
-                                      data=x_dat, FUN=quantile, probs = 0.33)[, 2],
-                            aggregate(standardised_cases ~ Days_since_start,
-                                      data=x_dat, FUN=quantile, probs = 0.5)[, 2],
-                            aggregate(standardised_cases ~ Days_since_start,
-                                      data=x_dat, FUN=quantile, probs = 0.66)[, 2])
         # compariosn matrix
         comp_mat <- cbind(x_dat[x_dat$Area == input$area_select,
                                 "standardised_cases"] >= timeSUM[, 1],
@@ -952,38 +1090,77 @@ server <- function(input, output, session) {
         if(sum(comp_mat_sum) < 3){OB_sum = "average"}
         if(sum(comp_mat_sum) < 2){OB_sum = "below average"}
         
-        if(input$outcome_select2=="Hospital bed occupancy") {
+        if(all(comp_mat_sum)){OB_sum2 = "abaixo da média"}
+        if(sum(comp_mat_sum) < 3){OB_sum2 = "média"}
+        if(sum(comp_mat_sum) < 2){OB_sum2 = "acima da média"}
+        
+        
+        if(input$outcome_select2=="Hospital bed occupancy / Ocupação de leitos hospitalares") {
             x_dat %<>%
                 dplyr::rename(outcome=Bed_occ_50) %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
-        } else if(input$outcome_select2=="Cumulative death incidence") {
+        } else if(input$outcome_select2=="Cumulative death incidence / Incidência acumulada de óbitos") {
             x_dat %<>%
                 dplyr::rename(outcome=Deaths_50)  %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
-        } else if(input$outcome_select2=="ITU bed occupancy"){
+        } else if(input$outcome_select2=="ITU bed occupancy / Ocupação de leitos de UTI"){
             x_dat %<>%
                 dplyr::rename(outcome=ITU_Bed_occ_50)  %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
-        } else if(input$outcome_select2=="Cumulative case incidence"){
+        } else if(input$outcome_select2=="Cumulative case incidence / Incidência acumulada de casos"){
             x_dat %<>%
                 dplyr::rename(outcome=standardised_cases)  %>%
                 dplyr::mutate(Region=str_sub(Area, start= -2))
+            
         }
         
-        if(input$outcome_select2=="Hospital bed occupancy") {
-            y_label <- "Hospital bed occupancy per 1,000 residents (log scale)"
-        } else if(input$outcome_select2=="ITU bed occupancy") {
-            y_label <- "ITU bed occupancy per 1,000 residents (log scale)"
-        } else if(input$outcome_select2=="Cumulative death incidence") {
-            y_label <- "Standardised death incidence per 1,000 residents (log scale)"
-        } else if(input$outcome_select2=="Cumulative case incidence"){
-            y_label <- "Standardised case incidence per 1,000 residents (log scale)"
+        if(input$outcome_select2=="Hospital bed occupancy / Ocupação de leitos hospitalares" &
+           input$language=="EN") {
+            my_label <- "Hospital bed occupancy \n per 1,000 residents (log scale)"
+        }
+        if(input$outcome_select2=="Hospital bed occupancy / Ocupação de leitos hospitalares" &
+           input$language=="PR") {
+            my_label <- "Ocupação de leitos hospitalares por 1.000 \n residentes (escala logarítmica)"
+        }
+        if(input$outcome_select2=="ITU bed occupancy / Ocupação de leitos de UTI" &
+           input$language=="EN") {
+            my_label <- "ITU bed occupancy per 1,000 residents \n (log scale)"
+        }
+        if(input$outcome_select2=="ITU bed occupancy / Ocupação de leitos de UTI" &
+           input$language=="PR") {
+            my_label <- "Ocupação de leitos em UTI por 1.000 \n residentes (escala logarítmica)"
+        }
+        if(input$outcome_select2=="Cumulative death incidence / Incidência acumulada de óbitos" &
+           input$language=="EN") {
+            my_label <- "Standardised death incidence per 1,000 \n residents (log scale)"
+        }
+        if(input$outcome_select2=="Cumulative death incidence / Incidência acumulada de óbitos" &
+           input$language=="PR") {
+            my_label <- "Incidência padronizada de óbitos por 1.000 \n residentes (escala logarítmica)"
+        }
+        if(input$outcome_select2=="Cumulative case incidence / Incidência acumulada de casos" &
+           input$language=="EN"){
+            my_label <- "Standardised case incidence per 1,000 \n residents (log scale)"
+        }
+        if(input$outcome_select2=="Cumulative case incidence / Incidência acumulada de casos" &
+           input$language=="PR"){
+            my_label <- "Incidência padronizada de casos por 1.000 \n residentes (escala logarítmica)"
+        }
+        
+        
+        if(input$language=="EN"){
+            x_label <- "Days since start of the outbreak (incidence above 1 case per 10,000 residents)" 
+        }
+        if(input$language=="PR"){
+            x_label <- "Dias desde o início do surto (incidência acima de 1 caso por 10.000 residentes)"
         }
         
         
         outdata <- list(of1=x_dat,
-                        of2=y_label,
-                        of3=OB_sum)
+                        of2=x_label,
+                        of3=OB_sum,
+                        of4=OB_sum2,
+                        of5=my_label)
         
     })
     
@@ -993,45 +1170,31 @@ server <- function(input, output, session) {
         options(orig)
     })
     
-    # output$state_selector <- renderUI({ #creates State select box object called in ui
-    #     pickerInput(inputId = "region_select", #name of input
-    #                 label = h5("Select a State"), #label displayed in ui
-    #                 choices = sort(unique(as.character(Brazil_cases_sp$Name))),
-    #                 selected = "Sao Paulo") #default choice (not required)
-    # })
-    
-    output$area_selector <- renderUI({#creates County select box object called in ui
+    output$area_selector <- renderUI({# creates Munip select box object called in ui
         
         areas <- as.character(
             Brazil_cases_sp$Area[as.character(Brazil_cases_sp$Name) ==
-                                                       input$region_select])
-        data_available <- sort(areas[!is.na(areas)])
-        pickerInput(inputId = "area_select", #name of input
-                    label = h5("Select a Municipality"), #label displayed in ui
-                    choices = unique(data_available), #calls list of available counties
-                    selected = areas[1])
+                                     input$region_select & Brazil_cases_sp$cum_cases > 100])
+        data_available <- unique(sort(areas[!is.na(areas)]))
+        pickerInput(inputId = "area_select", # name of input
+                    label = h5("Select a Municipality"), # label displayed in ui
+                    choices = data_available, # calls list of available counties
+                    selected = data_available[1])
     })
     
-    # output$state_selector2 <- renderUI({ #creates State select box object called in ui
-    #     pickerInput(inputId = "region_select2", #name of input
-    #                 label = h5("Select National or a State"), #label displayed in ui
-    #                 choices = c("National", 
-    #                             sort(unique(as.character(Brazil_cases_sp$Name)))),
-    #                 selected = "National") #default choice (not required)
-    # })
     
-    
-    output$p1 <- renderPlotly({
+    output$p1 <- renderPlot({
         
         g1 <-  ggplot(area_db1()$of1, aes(x = Days_since_start,
                                           y = outcome,
                                           group = Area,
                                           # use "text" for hovering
-                                          text = paste0(input$outcome_select2,
-                                                        ": ",
-                                                        round(outcome,2)))) +
+                                          # text = paste0(input$outcome_select2,
+                                          #               ": ",
+                                          #               round(outcome,2)))
+                                          )) +
             theme_minimal() +
-            xlab("Days since start of the outbreak (incidence above 1 case per 10,000 residents)") +
+            xlab(area_db1()$of2) +
             theme(legend.text=element_text(size=16),
                   legend.title=element_text(size=14)) +
             theme(axis.text.x = element_text(size=9),
@@ -1046,25 +1209,33 @@ server <- function(input, output, session) {
                       color = "orange", size=0.3) +
             geom_line(data = area_db1()$of1[area_db1()$of1$Area == input$area_select, ],
                       color = "#ef6f6a", size=0.9) +
-            ylab(area_db1()$of2) +
-            # xlim(0, max(Days_since_start)+5) +
+            labs(y=area_db1()$of5) +
             ggtitle(input$outcome_select2) +
             theme(plot.title = element_text(hjust = 0.5)) +
             scale_y_continuous(trans='log10') 
-        
-        # Use ggplotly to hover text over plot
-        ggplotly(g1, tooltip = c("x","text", "Area"))
+        g1
     })
     
     
     output$legend <- renderImage({
         
-        return(list(
-            src = "input_data/legend2.png",
-            contentType = "image/png",
-            alt = "Legend"
-        ))  
+        if(input$language=="EN"){
+            return(list(
+                src = "input_data/legend2.png",
+                contentType = "image/png",
+                alt = "Legend"
+            ))  
+        }
+        if(input$language=="PR"){
+            return(list(
+                src = "input_data/legend2pr.png",
+                contentType = "image/png",
+                alt = "Legend"
+            ))  
+        }
+        
     }, deleteFile = FALSE)
+    
     
     output$saopaulo <- renderImage({
         
@@ -1094,13 +1265,19 @@ server <- function(input, output, session) {
     }, deleteFile = FALSE)
     
     output$selected_text <- renderText({
-        paste("After accounting for different population sizes",
-              "and age structures of COVID-19 affected municipalities,",
-              "the outbreak in",
-              substr(input$area_select, 1, nchar(input$area_select)-3),
-              "is currently tracking", "<b>", area_db1()$of3, "</b>",
-              "compared to other areas in Brazil")
-        
+        if(input$language=="EN"){
+            paste("After accounting for different population sizes",
+                  "and age structures of COVID-19 affected municipalities,",
+                  "the outbreak in",
+                  substr(input$area_select, 1, nchar(input$area_select)-3),
+                  "is currently tracking", "<b>", area_db1()$of3, "</b>",
+                  "compared to other areas in Brazil")
+        }
+        if(input$language=="PR")
+            paste("Após considerar os diferentes tamanhos populacionais e estruturas etárias dos municípios afetados pelo COVID-19, o surto em",
+                  substr(input$area_select, 1, nchar(input$area_select)-3),
+                  "está rastreando atualmente", "<b>", area_db1()$of4, "</b>",
+                  "em comparação com outras áreas no Brasil")
     })
     
     
@@ -1174,8 +1351,53 @@ server <- function(input, output, session) {
                     of4=z_dat)
     })
     
+    gg_title <- reactive({
+        if(input$language=="EN"){
+            return("Timing of interventions in different municipalities")
+        }
+        if(input$language=="PR"){
+            return("Momento das intervenções em diferentes municípios")
+        }
+    })
+    
+    
+    y_label3 <- reactive({
+        if(input$language=="EN"){
+            return("Days since start of the outbreak (>10 cases)")
+        }
+        if(input$language=="PR"){
+            return("Dias desde o início do surto (> 10 casos)")
+        }
+    })
+    
+    plot_anot1 <- reactive({
+        if(input$language=="EN"){
+            return("Before outbreak")
+        }
+        if(input$language=="PR"){
+            return("Antes do surto")
+        }
+    })
+    
+    plot_anot1 <- reactive({
+        if(input$language=="EN"){
+            return("Before outbreak")
+        }
+        if(input$language=="PR"){
+            return("Antes do surto")
+        }
+    })
+    
+    plot_anot2 <- reactive({
+        if(input$language=="EN"){
+            return("Outbreak")
+        }
+        if(input$language=="PR"){
+            return("Surto")
+        }
+    })
+    
     output$p2 <- renderPlot({
-        
         
         p2 <- ggplot(plotdb()$of1, aes(x=time, y=Intervention_type)) +
             geom_boxplot(aes(x=time, y=Intervention_type,
@@ -1197,258 +1419,302 @@ server <- function(input, output, session) {
                                           input$area_select),
                                values= c("black", "#00BA38")) +
             xlab("") +
-            ylab("Days since start of the outbreak (>10 cases)") +
+            ylab(y_label3()) +
             annotate(geom="text", x=10.75, y=mean(plotdb()$of1$Intervention_type),
-                     label="Before outbreak") +
-            annotate(geom="text", x=10.75, y=10, label="Outbreak") +
+                     label=plot_anot1()) +
+            annotate(geom="text", x=10.75, y=10, label=plot_anot2()) +
             coord_flip() +
-            ggtitle("Timing of interventions in different municipalities") +
-            theme_classic()
+            ggtitle(gg_title()) +
+            theme_classic() +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(plot.title = element_text(size=18))
         p2
     })
     
     output$intervention_text <- renderText({
         
-        paste("On average, interventions were put in place ",
-              "<b>", c("earlier", "later")[median(plotdb()$of3) + 1], "</b>",
-              " in the outbreak in",
-              substr(input$area_select, 1, nchar(input$area_select)-3),
-              "compared to other municipalities in Brazil")
-    })
-    
-    area_db2 <- reactive({
-        
-        s_dat <- plotdb()$of4
-        
-        s_dat$Area   <- as.character(s_dat$Area)
-        s_dat %<>% inner_join(states)
-        
-        if(input$region_select2 != "National"){
-            trend_s_dat <- s_dat[s_dat$Name == input$region_select2, ]
-        }else{
-            trend_s_dat <- s_dat
+        if(input$language=="EN"){
+            paste("On average, interventions were put in place ",
+                  "<b>", c("earlier", "later")[median(plotdb()$of3) + 1], "</b>",
+                  " in the outbreak in",
+                  substr(input$area_select, 1, nchar(input$area_select)-3),
+                  "compared to other municipalities in Brazil")
         }
-        
-        # and remove municipalities with NAs in their covariate data
-        trend_s_dat <- trend_s_dat[!is.na(trend_s_dat$SDI), ]
-        
-        popdenDF <- aggregate(popden ~ Area, max, data=trend_s_dat)
-        #head(popdenDF)
-        popdenQuartile<-quantile(popdenDF$popden, probs=(0:4)/4)
-        popdenDF$popdenQuartile <- cut(popdenDF$popden, popdenQuartile, 
-                                       include.lowest=TRUE)
-        Q_labels <- paste0("Q", 1:4)
-        Q_labels[1] = paste0(Q_labels[1], " (Lowest density)")
-        Q_labels[4] = paste0(Q_labels[4], " (Highest density)")
-        levels(popdenDF$popdenQuartile) <- Q_labels
-        popdenDF$popdenQuartile<-as.character(popdenDF$popdenQuartile)
-        #table(popdenDF$popdenQuartile, exclude=NULL)
-        
-        SDIDF<-aggregate(SDI ~ Area, max, data=trend_s_dat)
-        #head(SDIDF)
-        SDIQuartile<-quantile(SDIDF$SDI, probs=(0:4)/4)
-        SDIDF$SDIQuartile <- cut(SDIDF$SDI, SDIQuartile, include.lowest=TRUE)
-        Q_labels <- paste0("Q", 1:4)
-        Q_labels[1] = paste0(Q_labels[1], " (Least developed)")
-        Q_labels[4] = paste0(Q_labels[4], " (Most developed)")
-        levels(SDIDF$SDIQuartile) <- Q_labels
-        SDIDF$SDIQuartile<-as.character(SDIDF$SDIQuartile)
-        #table(SDIDF$SDIQuartile, exclude=NULL)
-        
-        PipedDF                       <- aggregate(Piped_water ~ Area, max, 
-                                                   data=trend_s_dat)
-        PipedQuartile                 <- quantile(PipedDF$Piped_water,
-                                                  probs=(0:4)/4)
-        PipedDF$PipedQuartile         <- cut(PipedDF$Piped_water,
-                                             PipedQuartile, 
-                                             include.lowest=TRUE)
-        Q_labels                      <- paste0("Q", 1:4)
-        Q_labels[1]                   <- paste0(Q_labels[1],
-                                                " (Least piped water)")
-        Q_labels[4]                   <- paste0(Q_labels[4],
-                                                " (Most piped water)")
-        levels(PipedDF$PipedQuartile) <- Q_labels
-        PipedDF$PipedQuartile         <- as.character(PipedDF$PipedQuartile)
-        
-        SewDF                     <- aggregate(Sewage_or_septic ~ Area,
-                                               max, data=trend_s_dat)
-        SewQuartile               <- quantile(SewDF$Sewage_or_septic,
-                                              probs=(0:4)/4)
-        SewDF$SewQuartile         <- cut(SewDF$Sewage_or_septic, 
-                                         SewQuartile, 
-                                         include.lowest=TRUE)
-        Q_labels                  <- paste0("Q", 1:4)
-        Q_labels[1]               <- paste0(Q_labels[1], 
-                                            " (Least sewerage)")
-        Q_labels[4]               <- paste0(Q_labels[4], 
-                                            " (Most sewerage)")
-        levels(SewDF$SewQuartile) <- Q_labels
-        SewDF$SewQuartile         <- as.character(SewDF$SewQuartile)
-        
-        TravDF                      <- aggregate(Travel_time ~ Area, 
-                                                 max, data=trend_s_dat)
-        TravQuartile                <- quantile(TravDF$Travel_time, 
-                                                probs=(0:4)/4)
-        TravDF$TravQuartile         <- cut(TravDF$Travel_time, 
-                                           TravQuartile, 
-                                           include.lowest=TRUE)
-        Q_labels                    <- paste0("Q", 1:4)
-        Q_labels[1]                 <- paste0(Q_labels[1], 
-                                              " (Least accessible)")
-        Q_labels[4]                 <- paste0(Q_labels[4],
-                                              " (Most accessible)")
-        levels(TravDF$TravQuartile) <- Q_labels
-        TravDF$TravQuartile         <- as.character(TravDF$TravQuartile)
-        
-        
-        #dim(AreaProfilesDF)
-        AreaProfilesDF <- merge(x=trend_s_dat, y=popdenDF,
-                                by="Area", all.x=T, all.y=F)
-        AreaProfilesDF <- merge(x=AreaProfilesDF, y=SDIDF, 
-                                by="Area", all.x=T, all.y=F)
-        AreaProfilesDF <- merge(x=AreaProfilesDF, y=PipedDF,
-                                by="Area", all.x=T, all.y=F)
-        AreaProfilesDF <- merge(x=AreaProfilesDF, y=SewDF, 
-                                by="Area", all.x=T, all.y=F)
-        AreaProfilesDF <- merge(x=AreaProfilesDF, y=TravDF, 
-                                by="Area", all.x=T, all.y=F)
-        
-        TimePointsVector <- as.numeric(names(table(
-            trend_s_dat$Days_since_start %/% 10)))
-        TimePointsVector <- 10*TimePointsVector[TimePointsVector>0]
-        
-        QuartileTimeDF<-AreaProfilesDF[AreaProfilesDF$Days_since_start %in% 
-                                           TimePointsVector,
-                                       c("Area", "Days_since_start",
-                                         "standardised_cases",
-                                         "popdenQuartile", 
-                                         "SDIQuartile",
-                                         "PipedQuartile",
-                                         "SewQuartile", 
-                                         "TravQuartile")]
-        
-        # filter out timepoints that don't have all 4 quartiles
-        missingQs        <- table(QuartileTimeDF$Days_since_start,
-                                  QuartileTimeDF$popdenQuartile)
-        missingQsDelete  <- as.numeric(rownames(missingQs)[apply(
-            missingQs, 1, function(x) any(x == 0))])
-        QuartileTimeDF   <- QuartileTimeDF[!(
-            QuartileTimeDF$Days_since_start %in% missingQsDelete), ]
-        
-        # bp_ofile <- list(of1=QuartileTimeDF,
-        #                  of2=SDIQuartile,
-        #                  of3=PipedQuartile,
-        #                  of4=SewQuartile,
-        #                  of5=TravQuartile)
+        if(input$language=="PR"){
+            paste("Em média, foram implementadas intervenções ",
+                  "<b>", c("antecipadamente", "posteriormente")[median(plotdb()$of3) + 1], 
+                  "</b>",
+                  " no surto em",
+                  substr(input$area_select, 1, nchar(input$area_select)-3),
+                  "comparado a outros municípios do Brasil")
+        }
     })
     
+    # area_db2 <- reactive({
+    #     
+    #     s_dat <- plotdb()$of4
+    #     
+    #     s_dat$Area   <- as.character(s_dat$Area)
+    #     s_dat %<>% inner_join(states)
+    #     
+    #     if(input$region_select2 != "National"){
+    #         trend_s_dat <- s_dat[s_dat$Name == input$region_select2, ]
+    #     }else{
+    #         trend_s_dat <- s_dat
+    #     }
+    #     
+    #     # and remove municipalities with NAs in their covariate data
+    #     trend_s_dat <- trend_s_dat[!is.na(trend_s_dat$SDI), ]
+    #     
+    #     popdenDF <- aggregate(popden ~ Area, max, data=trend_s_dat)
+    #     #head(popdenDF)
+    #     popdenQuartile<-quantile(popdenDF$popden, probs=(0:4)/4)
+    #     popdenDF$popdenQuartile <- cut(popdenDF$popden, popdenQuartile, 
+    #                                    include.lowest=TRUE)
+    #     Q_labels <- paste0("Q", 1:4)
+    #     Q_labels[1] = paste0(Q_labels[1], " (Lowest density)")
+    #     Q_labels[4] = paste0(Q_labels[4], " (Highest density)")
+    #     levels(popdenDF$popdenQuartile) <- Q_labels
+    #     popdenDF$popdenQuartile<-as.character(popdenDF$popdenQuartile)
+    #     #table(popdenDF$popdenQuartile, exclude=NULL)
+    #     
+    #     SDIDF<-aggregate(SDI ~ Area, max, data=trend_s_dat)
+    #     #head(SDIDF)
+    #     SDIQuartile<-quantile(SDIDF$SDI, probs=(0:4)/4)
+    #     SDIDF$SDIQuartile <- cut(SDIDF$SDI, SDIQuartile, include.lowest=TRUE)
+    #     Q_labels <- paste0("Q", 1:4)
+    #     Q_labels[1] = paste0(Q_labels[1], " (Least developed)")
+    #     Q_labels[4] = paste0(Q_labels[4], " (Most developed)")
+    #     levels(SDIDF$SDIQuartile) <- Q_labels
+    #     SDIDF$SDIQuartile<-as.character(SDIDF$SDIQuartile)
+    #     #table(SDIDF$SDIQuartile, exclude=NULL)
+    #     
+    #     PipedDF                       <- aggregate(Piped_water ~ Area, max, 
+    #                                                data=trend_s_dat)
+    #     PipedQuartile                 <- quantile(PipedDF$Piped_water,
+    #                                               probs=(0:4)/4)
+    #     PipedDF$PipedQuartile         <- cut(PipedDF$Piped_water,
+    #                                          PipedQuartile, 
+    #                                          include.lowest=TRUE)
+    #     Q_labels                      <- paste0("Q", 1:4)
+    #     Q_labels[1]                   <- paste0(Q_labels[1],
+    #                                             " (Least piped water)")
+    #     Q_labels[4]                   <- paste0(Q_labels[4],
+    #                                             " (Most piped water)")
+    #     levels(PipedDF$PipedQuartile) <- Q_labels
+    #     PipedDF$PipedQuartile         <- as.character(PipedDF$PipedQuartile)
+    #     
+    #     SewDF                     <- aggregate(Sewage_or_septic ~ Area,
+    #                                            max, data=trend_s_dat)
+    #     SewQuartile               <- quantile(SewDF$Sewage_or_septic,
+    #                                           probs=(0:4)/4)
+    #     SewDF$SewQuartile         <- cut(SewDF$Sewage_or_septic, 
+    #                                      SewQuartile, 
+    #                                      include.lowest=TRUE)
+    #     Q_labels                  <- paste0("Q", 1:4)
+    #     Q_labels[1]               <- paste0(Q_labels[1], 
+    #                                         " (Least sewerage)")
+    #     Q_labels[4]               <- paste0(Q_labels[4], 
+    #                                         " (Most sewerage)")
+    #     levels(SewDF$SewQuartile) <- Q_labels
+    #     SewDF$SewQuartile         <- as.character(SewDF$SewQuartile)
+    #     
+    #     TravDF                      <- aggregate(Travel_time ~ Area, 
+    #                                              max, data=trend_s_dat)
+    #     TravQuartile                <- quantile(TravDF$Travel_time, 
+    #                                             probs=(0:4)/4)
+    #     TravDF$TravQuartile         <- cut(TravDF$Travel_time, 
+    #                                        TravQuartile, 
+    #                                        include.lowest=TRUE)
+    #     Q_labels                    <- paste0("Q", 1:4)
+    #     Q_labels[1]                 <- paste0(Q_labels[1], 
+    #                                           " (Least accessible)")
+    #     Q_labels[4]                 <- paste0(Q_labels[4],
+    #                                           " (Most accessible)")
+    #     levels(TravDF$TravQuartile) <- Q_labels
+    #     TravDF$TravQuartile         <- as.character(TravDF$TravQuartile)
+    #     
+    #     
+    #     #dim(AreaProfilesDF)
+    #     AreaProfilesDF <- merge(x=trend_s_dat, y=popdenDF,
+    #                             by="Area", all.x=T, all.y=F)
+    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=SDIDF, 
+    #                             by="Area", all.x=T, all.y=F)
+    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=PipedDF,
+    #                             by="Area", all.x=T, all.y=F)
+    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=SewDF, 
+    #                             by="Area", all.x=T, all.y=F)
+    #     AreaProfilesDF <- merge(x=AreaProfilesDF, y=TravDF, 
+    #                             by="Area", all.x=T, all.y=F)
+    #     
+    #     TimePointsVector <- as.numeric(names(table(
+    #         trend_s_dat$Days_since_start %/% 10)))
+    #     TimePointsVector <- 10*TimePointsVector[TimePointsVector>0]
+    #     
+    #     QuartileTimeDF<-AreaProfilesDF[AreaProfilesDF$Days_since_start %in% 
+    #                                        TimePointsVector,
+    #                                    c("Area", "Days_since_start",
+    #                                      "standardised_cases",
+    #                                      "popdenQuartile", 
+    #                                      "SDIQuartile",
+    #                                      "PipedQuartile",
+    #                                      "SewQuartile", 
+    #                                      "TravQuartile")]
+    #     
+    #     # filter out timepoints that don't have all 4 quartiles
+    #     missingQs        <- table(QuartileTimeDF$Days_since_start,
+    #                               QuartileTimeDF$popdenQuartile)
+    #     missingQsDelete  <- as.numeric(rownames(missingQs)[apply(
+    #         missingQs, 1, function(x) any(x == 0))])
+    #     QuartileTimeDF   <- QuartileTimeDF[!(
+    #         QuartileTimeDF$Days_since_start %in% missingQsDelete), ]
+    #     
+    #     # bp_ofile <- list(of1=QuartileTimeDF,
+    #     #                  of2=SDIQuartile,
+    #     #                  of3=PipedQuartile,
+    #     #                  of4=SewQuartile,
+    #     #                  of5=TravQuartile)
+    # })
+    # 
     output$p3 <- renderPlot({
         
-        g3 <- ggplot(area_db2(),
-                     aes(x=factor(Days_since_start),
-                         y=standardised_cases,
-                         group=interaction(factor(Days_since_start),
-                                           factor(popdenQuartile)))) +
-            geom_boxplot(aes(fill=factor(popdenQuartile)), outlier.shape=NA) +
-            labs(x = "Days since start",
-                 y = "Cumulative ncidence per 1,000 people \n(log scale, outliers omitted)") +
-            scale_y_log10() +
-            theme_minimal() +
-            scale_fill_brewer(palette="BuPu",name = "Area population density\n (Quartiles)") +
-            # ggtitle("Population density") +
-            theme(plot.title = element_text(hjust = 0.5)) +
-            theme(plot.title = element_text(size=22)) +
-            theme(legend.text=element_text(size=12),
-                  legend.title=element_text(size=12)) +
-            theme(axis.text.x = element_text(size=12),
-                  axis.text.y = element_text(size=12),
-                  axis.title.x = element_text(size=12),
-                  axis.title.y = element_text(size=12)) +
-            theme(strip.text.x = element_text(size = 14))
+        # g3 <- ggplot(area_db2(),
+        #              aes(x=factor(Days_since_start),
+        #                  y=standardised_cases,
+        #                  group=interaction(factor(Days_since_start),
+        #                                    factor(popdenQuartile)))) +
+        #     geom_boxplot(aes(fill=factor(popdenQuartile)), outlier.shape=NA) +
+        #     labs(x = "Days since start",
+        #          y = "Cumulative ncidence per 1,000 people \n(log scale, outliers omitted)") +
+        #     scale_y_log10() +
+        #     theme_minimal() +
+        #     scale_fill_brewer(palette="BuPu",name = "Area population density\n (Quartiles)") +
+        #     # ggtitle("Population density") +
+        #     theme(plot.title = element_text(hjust = 0.5)) +
+        #     theme(plot.title = element_text(size=22)) +
+        #     theme(legend.text=element_text(size=12),
+        #           legend.title=element_text(size=12)) +
+        #     theme(axis.text.x = element_text(size=12),
+        #           axis.text.y = element_text(size=12),
+        #           axis.title.x = element_text(size=12),
+        #           axis.title.y = element_text(size=12)) +
+        #     theme(strip.text.x = element_text(size = 14))
+        # 
         
+        if(input$region_select2 != "National"){
+            myRegion <- unique(Brazil_cases_sp$Region[Brazil_cases_sp$Name == 
+                                                          input$region_select2])
+        } else {
+            myRegion <- "National"
+        }
         
-        g4 <- ggplot(area_db2(),
-                     aes(x=factor(Days_since_start),
-                         y=standardised_cases,
-                         group=interaction(factor(Days_since_start),
-                                           factor(SDIQuartile)))) +
-            geom_boxplot(aes(fill=factor(SDIQuartile)), outlier.shape=NA) +
-            labs(x = "Days since start",
-                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
-            scale_fill_brewer(palette="BuPu",
-                              name = "Area Socio-demographic\n index (Quartiles)") +
-            theme_minimal() +
-            # ggtitle("Socio Demographic Index") +
-            theme(plot.title = element_text(hjust = 0.5)) +
-            theme(plot.title = element_text(size=22)) +
-            theme(legend.text=element_text(size=12),
-                  legend.title=element_text(size=12)) +
-            theme(axis.text.x = element_text(size=12),
-                  axis.text.y = element_text(size=12),
-                  axis.title.x = element_text(size=12),
-                  axis.title.y = element_text(size=12)) +
-            theme(strip.text.x = element_text(size = 14)) +
-            scale_y_log10()
-
-        g5 <- ggplot(area_db2(),
-                     aes(x=factor(Days_since_start),
-                         y=standardised_cases,
-                         group=interaction(factor(Days_since_start),
-                                           factor(PipedQuartile)))) +
-            geom_boxplot(aes(fill=factor(PipedQuartile)), outlier.shape=NA) +
-            labs(x = "Days since start",
-                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
-            scale_fill_brewer(palette="BuPu",
-                              name = "Proportion of households \nwith piped water (Quartiles)") +
-            scale_y_log10() +
-            theme_minimal() +
-            # ggtitle("Access to piped water") +
-            theme(plot.title = element_text(hjust = 0.5)) +
-            theme(plot.title = element_text(size=22)) +
-            theme(legend.text=element_text(size=12),
-                  legend.title=element_text(size=12)) +
-            theme(axis.text.x = element_text(size=12),
-                  axis.text.y = element_text(size=12),
-                  axis.title.x = element_text(size=12),
-                  axis.title.y = element_text(size=12)) +
-            theme(strip.text.x = element_text(size = 14))
-
-        g6 <- ggplot(area_db2(),
-                     aes(x=factor(Days_since_start),
-                         y=standardised_cases,
-                         group=interaction(factor(Days_since_start),
-                                           factor(SewQuartile)))) +
-            geom_boxplot(aes(fill=factor(SewQuartile)), outlier.shape=NA) +
-            labs(x = "Days since start",
-                 y = "Cumulative incidence per 1,000 people \n(log scale, outliers omitted)") +
-            scale_fill_brewer(palette="BuPu",
-                              name = "Proportion of households \nconnected to the sewerage \nnetwork (Quartiles)") +
-            scale_y_log10() +
-            theme_minimal() +
-            # ggtitle("Access to piped water") +
-            theme(plot.title = element_text(hjust = 0.5)) +
-            theme(plot.title = element_text(size=22)) +
-            theme(legend.text=element_text(size=12),
-                  legend.title=element_text(size=12)) +
-            theme(axis.text.x = element_text(size=12),
-                  axis.text.y = element_text(size=12),
-                  axis.title.x = element_text(size=12),
-                  axis.title.y = element_text(size=12)) +
-            theme(strip.text.x = element_text(size =14))
-
+        if(input$language=="EN"){
+            g3 <- Trends_plot_list[[myRegion]][["Density"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14))
+            
+            g4 <- Trends_plot_list[[myRegion]][["SDI"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14))
+            
+            g5 <- Trends_plot_list[[myRegion]][["Sewerage"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14))
+            
+            g6 <- Trends_plot_list[[myRegion]][["Travel"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14))
+        }
+        if(input$language=="PR"){
+            g3 <- Trends_plot_list[[myRegion]][["Density"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14)) +
+                labs(x = "Dias desde o início",
+                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                guides(fill=guide_legend(title="Densidade populacional da área\n (Quartiles)"))
+            g4 <- Trends_plot_list[[myRegion]][["SDI"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14)) +
+                labs(x = "Dias desde o início",
+                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                guides(fill=guide_legend(title="Área Sociodemográfica\n index (Quartiles)"))
+            
+            g5 <- Trends_plot_list[[myRegion]][["Sewerage"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14)) +
+                labs(x = "Dias desde o início",
+                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                guides(fill=guide_legend(title="Proporção de famílias \ncom água encanada (Quartiles)"))
+            
+            g6 <- Trends_plot_list[[myRegion]][["Travel"]] +
+                theme_minimal() +
+                theme(legend.text=element_text(size=12),
+                      legend.title=element_text(size=12)) +
+                theme(axis.text.x = element_text(size=12),
+                      axis.text.y = element_text(size=12),
+                      axis.title.x = element_text(size=12),
+                      axis.title.y = element_text(size=12)) +
+                theme(strip.text.x = element_text(size = 14)) +
+                labs(x = "Dias desde o início",
+                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                guides(fill=guide_legend(title="Proporção de famílias \nconectadas à rede de esgotos\n(Quartiles)"))
+        }
+        
         ggarrange(g3, g4, g5, g6,
                   labels=NULL,
                   ncol=2, nrow=2, label.x=-0.03,
                   font.label=list(size=18, face="bold"),
                   common.legend=FALSE, legend="right")
-
+        
     })
     
     
     
     output$rows_label = renderText({
         switch(input$language, "EN"="Number of rows to show",
-               "ES"="Número de filas a mostrar")
+               "PR"="Número de linhas a mostrar")
     })
     
     out_dat <- reactive({
@@ -1499,7 +1765,7 @@ server <- function(input, output, session) {
     
     output$download_label = renderText({
         switch(input$language, "EN"="Download data as CSV",
-               "PR"="Descargar datos en formato CSV")
+               "PR"="Baixar dados como CSV")
     })
 }
 
