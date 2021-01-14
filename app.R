@@ -31,6 +31,7 @@
 ## 
 ## ############################################################################
 
+# options(rsconnect.max.bundle.size=50000000000)
 
 # Required packages
 if(!require(magrittr)) install.packages("magrittr", repos = "http://cran.us.r-project.org")
@@ -40,7 +41,7 @@ if(!require(ggthemes)) install.packages("ggthemes", repos = "http://cran.us.r-pr
 if(!require(ggrepel)) install.packages("ggrepel", repos = "http://cran.us.r-project.org")
 if(!require(gghighlight)) install.packages("gghighlight", repos = "http://cran.us.r-project.org")
 if(!require(leaflet)) install.packages("leaflet", repos = "http://cran.us.r-project.org")
-if(!require(plotly)) install.packages("plotly", repos = "http://cran.us.r-project.org")
+# if(!require(plotly)) install.packages("plotly", repos = "http://cran.us.r-project.org")
 if(!require(shiny)) install.packages("shiny", repos = "http://cran.us.r-project.org")
 if(!require(shinyWidgets)) install.packages("shinyWidgets", repos = "http://cran.us.r-project.org")
 if(!require(shinydashboard)) install.packages("shinydashboard", repos = "http://cran.us.r-project.org")
@@ -54,9 +55,11 @@ if(!require(ggpubr)) install.packages("ggpubr", repos = "http://cran.us.r-projec
 if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
 if(!require(gsubfn)) install.packages("gsubfn", repos = "http://cran.us.r-project.org")
 if(!require(rgdal)) install.packages("rgdal", repos = "http://cran.us.r-project.org")
-if(!require(scico)) install.packages("scico", repos = "http://cran.us.r-project.org")
+# if(!require(scico)) install.packages("scico", repos = "http://cran.us.r-project.org")
 if(!require(sf)) install.packages("sf", repos = "http://cran.us.r-project.org")
 if(!require(rdrop2)) install.packages("rdrop2", repos = "http://cran.us.r-project.org")
+# if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(plotROC)) install.packages("plotROC", repos = "http://cran.us.r-project.org")
 
 # Load global variables
 app_title <- "COVID-19 Local Information Comparison (CLIC Brazil)"
@@ -68,8 +71,11 @@ source(file.path("input_data", "OB_standardisation_functions.R"))
 Measure   <- "Age standardised incidence"
 DateUntil <- Sys.Date()
 
-# Search and download latest version 
-target <- gsub("-", "_", DateUntil)
+drop_auth(rdstoken = "token.rds")
+
+# Search and download latest version available on site
+# target <- gsub("-", "_", DateUntil)
+target <- "Brazil_BigStandard_results_2021"
 sear   <- drop_search(target)
 try({
     drop_download(sear$matches[[1]]$metadata$path_display,
@@ -93,10 +99,68 @@ try({
                   overwrite=TRUE)
 })
 
+target4 <- "peak.rds"
+sear4   <- drop_search(target4)
+try({
+    drop_download(sear4$matches[[1]]$metadata$path_display,
+                  local_path = 'input_data/',
+                  overwrite=TRUE)
+})
+
+target5 <- "AUCplot.rdata"
+sear5   <- drop_search(target5)
+try({
+    drop_download(sear5$matches[[1]]$metadata$path_display,
+                  local_path = 'input_data/',
+                  overwrite=TRUE)
+})
+
+target6 <- "AUCDF.rdata"
+sear6   <- drop_search(target6)
+try({
+    drop_download(sear6$matches[[1]]$metadata$path_display,
+                  local_path = 'input_data/',
+                  overwrite=TRUE)
+})
+
+target7 <- "Brazil_rt_prediction."
+sear7   <- drop_search(target7, mode="filename")
+try({
+    drop_download(sear7$matches[[1]]$metadata$path_display,
+                  local_path = 'input_data/',
+                  overwrite=TRUE)
+})
+
+cut_off_date = "2020-04-01"
+
+# Read data
+peakDF        <- readRDS("input_data/Peak.rds")
+all_plot_data <- readRDS("input_data/Brazil_rt_prediction-current.RDS")
+load("input_data/AUCplot.rdata")
+load("input_data/AUCDF.rdata")
+
+# Look at max Rt value by group 
+max_Rt_vals <- all_plot_data %>% group_by(city_state) %>% top_n(1,Rtotalhat)
+
+# city/state combinations
+city_states <- sort(unique(as.character(all_plot_data$city_state)))
+
+# date  omit NAs
+peakDF <- peakDF[!is.na(peakDF$X), ]
+peakDF <- peakDF[!is.na(peakDF$PredictProb), ]
+
+# make sf object
+peakSF <- st_as_sf(peakDF, coords = c("X", "Y"))
+
+# DUMMY
+# dfr <- data.frame(units=rep(LETTERS[1:5], each=20), 
+#                   x=rnorm(100),
+
 # names(Trends_plot_list)[1] <- "National"
 
 # Load in pre-computed BigWrap dataset
-load(fetch_latest(fileDir = "input_data/", type = "BigStandard"))
+myvar <- str_sub(sear$matches[[1]]$metadata$path_display, start= -43)
+load(paste0("input_data/", myvar))
 
 load(file.path("input_data/Trends_plots2020_06_23.RData"))
 
@@ -110,7 +174,7 @@ Brazil_cases  <- BigStandard$standardised_incidence
 # Load map
 myMap <- rgdal::readOGR("input_data", "Brazil_AD2_shape")
 
-# Measure   <- "Age standardised incidence"
+# Measure <- "Age standardised incidence"
 DateUntil <- Sys.Date()
 
 Brazil_cases_sp <- Brazil_cases
@@ -169,7 +233,7 @@ z_dat <- district.start.date.find(z_dat, BigStandard$Intervention)
 
 # all interventions
 int_opts <- colnames(z_dat)[grepl("start", colnames(z_dat))]
-int_opts = int_opts[!int_opts == "Days_since_start"]
+int_opts <- int_opts[!int_opts == "Days_since_start"]
 
 
 # loop through interventions aggregating at the area level
@@ -184,8 +248,8 @@ colnames(int_first)= gsub("_start", "", int_opts)
 
 
 # reformat into a data frame
-int_first = data.frame(Area = sort(unique(z_dat$Area)),
-                       int_first)
+int_first <- data.frame(Area = sort(unique(z_dat$Area)),
+                        int_first)
 
 # now reshape into long format
 Int_long <- reshape(int_first,
@@ -194,12 +258,13 @@ Int_long <- reshape(int_first,
                     direction = "long")
 
 # formatting
-Int_long$time = as.character(Int_long$time)
-Int_long$time = gsub("_", " ", Int_long$time)
+Int_long$time <- as.character(Int_long$time)
+Int_long$time <- gsub("_", " ", Int_long$time)
 
 # reordering to maintain alphabetical order
 Int_long$time <- factor(Int_long$time,
-                        levels = sort(unique(Int_long$time)),ordered = TRUE)
+                        levels  = sort(unique(Int_long$time)),
+                        ordered = TRUE)
 
 # standardise intervention column name
 colnames(Int_long)[3] = "Intervention_type"
@@ -392,13 +457,181 @@ ui <- navbarPage(
              )
     ),
     
+    tabPanel(title=uiOutput("tab_title8"),
+             
+             sidebarLayout(
+                 sidebarPanel(
+                     width=4,
+                     
+                     # htmlOutput("state_selector"),
+                     pickerInput("region_select_rt1",
+                                 h5(uiOutput("state_label_rt1")),
+                                 choices = city_states,
+                                 selected = "São Caetano do Sul_SP",
+                                 multiple = FALSE),
+                     pickerInput("region_select_rt2",
+                                 h5(uiOutput("state_label_rt2")),
+                                 choices = city_states,
+                                 selected = "São Paulo_SP",
+                                 multiple = FALSE),
+                     pickerInput("region_select_rt3",
+                                 h5(uiOutput("state_label_rt3")),
+                                 choices = city_states,
+                                 selected = "Águas de Lindóia_SP",
+                                 multiple = FALSE),
+                     pickerInput("region_select_rt4",
+                                 h5(uiOutput("state_label_rt4")),
+                                 choices = city_states,
+                                 selected = "Agudos_SP",
+                                 multiple = FALSE),
+                     
+                     br(),
+                     
+                     
+                 ),
+                 
+                 mainPanel(
+                     # tabsetPanel(
+                     tabPanel("",
+                              plotOutput("p_rt",
+                                         height="400px"),
+                              tags$br(), tags$br(),
+                              tags$h3("Rt plot"),
+                              tags$p("This plot shows changes in the average
+                                     reproduction number (Rt) within the chosen 
+                                     municipalities over time. The reproduction 
+                                     number estimates the average number of 
+                                     secondary cases generated by one infectious
+                                     person and values below 1.0 indicate that
+                                     the number of new infections is reducing.
+                                     Estimates were made using the APE renewal
+                                     approach from Parag et al. 2019 . We assume 
+                                     a mean serial interval (time between 
+                                     successive transmission events) of 2.97 
+                                     days (standard deviation 3.29) based on 
+                                     recent data from Brazil Prete et al. 2019.
+                                     Reproduction number estimates are updated 
+                                     daily but only produced up to 14 days ago 
+                                     due to delays in diagnosing and reporting
+                                     more recent cases that would lead to 
+                                     underestimates of Rt if more recent data 
+                                     were used. We assume testing, case 
+                                     confirmation and reporting efforts are 
+                                     constant over time. Increases or decreases
+                                     will increase of decrease Rt respectively.
+                                     We also assume that all reported cases are 
+                                     locally acquired and not imported. In order
+                                     to correct for under-reporting of cases on 
+                                     particular days of the week (particularly 
+                                     on Sundays and Mondays) we applied a 
+                                     smoothing function to the incident case 
+                                     numbers which re-distributed the daily case
+                                     counts in order to get roughly equal numbers
+                                     of cases reported for each day of the week.
+                                     The following limitations in the method 
+                                     should be noted:"),
+                              tags$li("We only generate Rt estimates for places
+                              that have reported data for at least 30 days and 
+                              which have a total of at least 100 cases reported."),
+                              tags$li("We did not account for uncertainty in 
+                              the serial interval. In addition, our approach
+                              does not account for negative support in the 
+                              serial interval. This means our estimates may be 
+                              overly precise and/or biased."),
+                              tags$li("We used a mean shift to map reported cases
+                              back to the date of infection. This approach is 
+                              known to produce Rt estimates that are biased 
+                              downwards when Rt is greater than 1 and biased 
+                              upwards when Rt is less than 1. We also did not 
+                              account for uncertainties in the delay from onset 
+                              to report or from infection to onset our estimates."),
+                              tags$li("The APE renewal approach from Parag et al. 
+                              optimises the window across the whole time series 
+                              considered. This means that the smoothness of
+                              historic estimates may change as new data becomes 
+                              available and in areas with prolonged stable 
+                              periods real time estimates will be biased towards
+                              smoother changes over time."),
+                              tags$li("To account for right truncation of
+                              reported cases we only produce estimates up to 10 
+                              days ago. However this data may still be incomplete 
+                              and therefore our latest estimates may be biased
+                              downward."),
+                             
+                              br())
+                     
+                     # )
+                 )
+             )
+    ),
+    
     tabPanel(title=uiOutput("tab_title4"),
              
-             tags$style(type="text/css",
-                        ".shiny-output-error { visibility: hidden; }",
-                        ".shiny-output-error:before { visibility: hidden; }"
+             fluidRow(
+                 column(7, 
+                        mapviewOutput("map2",
+                                      width="100%",
+                                      height=550)),
+                 column(4, plotOutput("aucplot",
+                                      width="100%",
+                                      height=550))
              ),
-             tags$h5(uiOutput("available_label")),
+             tags$br(), tags$br(),
+             tags$h3("Predicted probabilities map"),
+             tags$p("This section predicts the probability that
+                   each municipality will experience a new record
+                   incidence in the future, i.e. that it has not yet 
+                   passed its peak incidence. More specifically, the 
+                   map shows the estimated probability that a new 
+                   record incidence will occur in the next 30 days. 
+                   Darker colours in the map correspond to a higher 
+                   probability of setting a new record. In other words,
+                   a high probability means that at least one day out 
+                   of the next 30 is likely to have an incidence higher 
+                   than any observed so far. Likewise, a small probability 
+                   means that the daily incidence over the next 30 days is
+                   likely to stay less than previous highs."),
+             tags$p("Model details. The probabilities are estimated by Cox 
+                   regression in the R software (the “coxph” function in
+                   the “survival” package). The event being modelled is 
+                   the setting of a new record daily standardized incidence.
+                   In general, each municipality has set more than one record
+                   incidence since the start of its outbreak. The analysis 
+                   time is the number of days since the threshold number of 
+                   cases was met and the municipality started to be tracked. 
+                   The covariates, selected by likelihood ratio test, are:"),
+             tags$li("difference between the latest daily incidence and the 
+                    record incidence,"),
+             tags$li("as before, but based on the incidence 6 days ago,"),
+             tags$li("as before, but based on the incidence 7 days ago,"),
+             tags$li("state of Brazil (categorical variable)"),
+             tags$li("socioeconomic development index (SDI)."),
+             tags$p("Clustering within municipality is included as a 
+                   frailty term."),
+             tags$p("To estimate the probability of a new record being set
+                   over the next 30 days, the", 
+                    tags$a(href = 'https://stat.ethz.ch/R-manual/R-patched/library/survival/html/predict.coxph.html',
+                           'predict'), "method for the", 
+                    tags$em("coxph"), "function is used. First, the expected 
+                   number of times that a record will be set over the next 30 
+                   days is estimated. Then, the estimated probability of
+                   any new record being set in that time is calculated
+                   as 1-exp(-1 x expected number of new records). This 
+                   takes into account the baseline hazard."),
+             
+             tags$h3("ROC curve"),
+             tags$p("To assess the predictive performance of the model, 
+                   the data were divided into training and test datasets. 
+                   The training dataset was obtained by omitting the last 
+                   30 days of data from each municipality. Then, the above
+                   Cox regression model was applied to the training dataset, 
+                   to predict the 30 days that had been omitted. For each 
+                   municipality, the prediction was whether or not a new 
+                   record high daily incidence was set. These predictions
+                   were compared with the actual occurrence of new record 
+                   highs. These results are displayed in the form of a ROC
+                   (receiver operating characteristic) curve."),
+             tags$br(), tags$br()
     ),
     
     tabPanel(title=uiOutput("tab_title5"),
@@ -446,9 +679,20 @@ ui <- navbarPage(
                  tags$br(),
                  "Dr Felipe J Colón-González",
                  tags$br(),
+                 "Dr Andreza A de Souza Santos",
+                 tags$br(),
+                 "Dr Andre Luis Acosta",
+                 tags$br(),
                  "Dr Neal Alexander",
                  tags$br(),
                  "CMMID nCov working group",
+                 tags$br(),
+                 "CADDE working group",
+                 
+                 tags$br(), tags$br(),
+                 tags$h4(uiOutput("funding")), 
+                 uiOutput("text14"),
+                 
                  
                  tags$br(), tags$br(),
                  tags$h4(uiOutput("disclaimer")), 
@@ -558,32 +802,50 @@ server <- function(input, output, session) {
                "PR"="Selecione entre Nacional ou Estado") 
     })
     
+    output$state_label_rt1 <- renderText({
+        switch(input$language, "EN"="Select a City-State",
+               "PR"="Selecione uma Cidade-Estado") 
+    })
+    output$state_label_rt2 <- renderText({
+        switch(input$language, "EN"="Select a City-State",
+               "PR"="Selecione uma Cidade-Estado") 
+    })
+    output$state_label_rt3 <- renderText({
+        switch(input$language, "EN"="Select a City-State",
+               "PR"="Selecione uma Cidade-Estado") 
+    })
+    output$state_label_rt4 <- renderText({
+        switch(input$language, "EN"="Select a City-State",
+               "PR"="Selecione uma Cidade-Estado") 
+    })
     
     output$list1 <- renderUI({
         switch(input$language, "EN"=
                    HTML("<ul><li>Currently there is a trend towards higher 
              incidence rates in lower density areas.</li> 
              <li>Currently there are no clear differences between 
-             in incidence with higher or lower development.</li>
-             <li>Currently there is a trend towards higher
-             incidence rates in areas with less access to piped water.</li>
+             incidence with higher or lower development.</li>
              <li>Currently there is a trend towards higher 
              incidence rates in areas with less access to the 
-             sewerage network.</li></ul>"),
+             sewerage network.</li>
+             <li>Currently there is a trend towards higher 
+             incidence rates in areas more accessible areas, 
+             particularly later on in the epidemic. </li></ul>"),
                "PR"=
                    HTML("<ul><li>Atualmente há uma tendência para maiores taxas 
             de incidência em áreas de menor densidade.</li>
             <li>Atualmente não há diferenças claras entre incidências 
             e maior ou menor desenvolvimento.</li>
-            <li>Atualmente há uma tendência para maiores taxas de 
-            incidência em áreas com menor acesso à água encanada.</li>
             <li>Atualmente há uma tendência para maiores taxas de incidência 
-            em áreas com menos acesso à rede de esgoto.</li></ul>")
+            em áreas com menos acesso à rede de esgoto.</li>
+            <li>Atualmente, há uma tendência para maiores taxas 
+            de incidência em áreas mais acessíveis, particularmente
+            mais tarde na epidemia.</li></ul>")
         )
     })
     
     output$tab_title4 <- renderText({
-        switch(input$language, "EN"="Model-based forecast",
+        switch(input$language, "EN"="Model forecast",
                "PR"="Previsão") 
     })
     
@@ -653,6 +915,11 @@ server <- function(input, output, session) {
                "PR"="Autores") 
     })
     
+    output$funding <- renderText({
+        switch(input$language, "EN"="Funding",
+               "PR"="Financiamento") 
+    })
+    
     output$disclaimer <- renderText({
         switch(input$language, "EN"="Disclaimer",
                "PR"="Aviso legal") 
@@ -666,6 +933,11 @@ server <- function(input, output, session) {
     output$tab_title7 <- renderText({
         switch(input$language, "EN"="How to use",
                "PR"="Como usar") 
+    })
+    
+    output$tab_title8 <- renderText({
+        switch(input$language, "EN"="Rt plot",
+               "PR"="Gráfico de Rt") 
     })
     
     output$intro <- renderText({
@@ -705,7 +977,7 @@ server <- function(input, output, session) {
     
     output$text1 <- renderUI({
         switch(input$language, "EN"=
-        HTML("The data on COVID-19 cases aggregated by municipality 
+                   HTML("The data on COVID-19 cases aggregated by municipality 
         is obtained from the Brasil.IO COVID-19 project repository which is, 
         updated on a daily basis. Municipality is the second administrative, 
         level in Brazil (below state). There are 5,570 municipalities in, 
@@ -716,8 +988,8 @@ server <- function(input, output, session) {
         at 09:00 GMT. For more information see:
         <a href = 'https://brasil.io/dataset/covid19/caso_full/',>
              brasil.io </a></u>"),
-        "PR"=
-        HTML("Os dados dos casos COVID-19 agregados por município são,
+               "PR"=
+                   HTML("Os dados dos casos COVID-19 agregados por município são,
              obtidos do repositório do projeto Brasil.IO COVID-19,
              que é atualizado diariamente. Município é o,
              segundo nível administrativo no Brasil (abaixo do estado).,
@@ -767,30 +1039,31 @@ server <- function(input, output, session) {
     
     output$text4 <- renderUI({
         switch(input$language, "EN"=
-                   HTML("Data on the types of interventions implemented 
-                   and the dates of their introduction were derived by
-                   manual extraction of information from two primary data 
-                   sources; the ACAPS #COVID 19 Government Measures Dataset
-                   <a href='https://www.acaps.org/covid19-government-measures-dataset',>
-                   ACAPS </a> and the 
-                   <a href='https://www.bsg.ox.ac.uk/research/research-projects/coronavirus-government-response-tracker',>
-                   Coronavirus Government Response Tracker </a>
-                   collated by a team based at the Blavatnik School of 
-                   Government and the University of Oxford, UK. Data 
-                   sources were extracted on 14th May 2020.</u>"),
+                   HTML("Data on the types of interventions implemented, and 
+                   the dates of their introduction were extracted from data 
+                   collated by the 
+                   <a href='https://www.cepal.org/en/topics/covid-19',>
+                   Cepal Observatory </a> with edits and updates on timing of
+                   interventions at the state level by Dr Andreza A de Souza 
+                   Santos, director of the Brazilian Studies
+                   <a href='https://www.lac.ox.ac.uk/brazilian-studies-programme#/',>
+                   Programme </a>. This dataset is summarised in a recent 
+                   pre-print 
+                   <a href='https://www.medrxiv.org/content/10.1101/2020.04.25.20077396v1',>
+                   manuscript </a> </u>"),
                "PR"=
                    HTML("Dados sobre os tipos de intervenções implementadas e as
-                        datas de introdução foram derivadas por extração manual
-                        de informações de duas fontes de dados principais;
-                        o Government Measures Dataset ACAPS #COVID 19
-                        <a href='https://www.acaps.org/covid19-government-measures-dataset',>
-                        ACAPS </a> e o 
-                        <a href='https://www.bsg.ox.ac.uk/research/research-projects/coronavirus-government-response-tracker',>
-                        Coronavirus Government Response Tracker </a> 
-                        reunidos por uma equipe baseada em Blavatnik School 
-                        of Government e na Universidade de Oxford, UK. As 
-                        fontes de dados foram extraídas em 14 de Maio de
-                        2020.</u>")
+                        datas de introdução foram extraídas dos dados ordenado 
+                        pelo
+                       <a href='https://www.cepal.org/en/topics/covid-19',>
+                        Cepal Observatory </a> com edições e atualizações pelo
+                        Dr Andreza A de Souza Santos, diretora do Programa
+                        de Estudos  
+                        <a href='https://www.lac.ox.ac.uk/brazilian-studies-programme#/',>
+                        Brasileiros </a>. O conjunto de dados está resumido em 
+                        uma recente
+                       <a href='https://www.medrxiv.org/content/10.1101/2020.04.25.20077396v1',>
+                        pré-impressão </a>.</u>")
         )
     })
     
@@ -805,7 +1078,7 @@ server <- function(input, output, session) {
                    area age-stratified population data (3) to calculate 
                    age-specific incidence (standardised incidence) which 
                    is a measure that is comparable between areas. A measure
-                   of standardised incidence of Covid-19 cases per 1,000 
+                   of standardised incidence of COVID-19 cases per 10,000 
                    inhabitants is then calculated based on the national 
                    age profile of Brazil for visualisation in this 
                    application. Days since the start of the outbreak are
@@ -824,7 +1097,7 @@ server <- function(input, output, session) {
                         (3) para calcular a incidência específica por
                         idade (incidência padronizada), que é uma medida 
                         comparável entre as áreas. Uma medida da incidência
-                        padronizada de casos Covid-19 por 1.000 habitantes 
+                        padronizada de casos COVID-19 por 10.000 habitantes 
                         é então calculada com base no perfil etário nacional
                         do Brasil para visualização nestas aplicações. Os 
                         dias desde o início do surto são calculados a partir 
@@ -970,7 +1243,7 @@ server <- function(input, output, session) {
                         a circle. By selecting the options under 'Select 
                         Variable', the map can be configured to display either
                         the total number of COVID-19 cases or the incidence per 
-                        1000 people in the population. Cirlces with a dartker 
+                        10,000 people in the population. Cirlces with a dartker 
                         shading indicate higher values. By sliding the 'date'
                         button you can get a snapshot of the epidemic on 
                         previous days and explore how the epidemic has evolved.
@@ -982,7 +1255,7 @@ server <- function(input, output, session) {
                         círculo. Ao selecionar as opções em 'Selecionar
                         variável', o mapa pode ser configurado para exibir o
                         número total de casos COVID-19 ou com incidência de 
-                        1.000 pessoas na população. Cirlces com um sombreador 
+                        10.000 pessoas na população. Cirlces com um sombreador 
                         de dartker ver valores mais altos. Ao deslizar o botão
                         'data', você pode obter um instantâneo da epidemia nos 
                         dias anteriores e explorar como a epidemia evoluiu. 
@@ -999,7 +1272,7 @@ server <- function(input, output, session) {
                    municipalities with different population sizes and age 
                    structures. The timing of the start of the outbreak in each
                    muncipality has also been standardised to the first day 
-                   on which a case incidence of greater than 1 case per 1,000 
+                   on which a case incidence of greater than 1 case per 10,000 
                    residents was reported. - Using the top pull-down list on 
                    the left you select the state in which you municipality of 
                    interest is located the trajectories for all municpalities 
@@ -1025,7 +1298,7 @@ server <- function(input, output, session) {
                     populacionais e estruturas etárias. O momento do início do 
                     surto em cada município também foi padronizado para o 
                     primeiro dia em que foi relatada uma incidência de casos
-                    superior a 1 caso por 1.000 habitantes. - Usando a lista 
+                    superior a 1 caso por 10.000 habitantes. - Usando a lista 
                     suspensa superior à esquerda, você seleciona o estado em 
                     que seu município de interesse está localizado. As 
                     trajetórias de todos os municípios do estado serão 
@@ -1052,7 +1325,7 @@ server <- function(input, output, session) {
                         announced relative to when the epidemic began in each 
                         municipality. The time origin (day 0) for each 
                         municipality is the first day on which a case incidence
-                        of greater than 1 case per 1000 residents was reported. 
+                        of greater than 1 case per 10,000 residents was reported. 
                         Each black dot represents one municipality with the red 
                         dots representing the municipality selected in the 
                         dropdown menu. Dots in the blue area represent 
@@ -1071,7 +1344,7 @@ server <- function(input, output, session) {
                         progressão da epidemia em cada município. O momento 
                         inicial (dia 0) em cada município é o primeiro dia em 
                         que foi relatada uma incidência de caso superior a 1 
-                        caso por 1.000 residentes. Cada ponto preto representa 
+                        caso por 10.000 residentes. Cada ponto preto representa 
                         um município, com os pontos vermelhos representando o
                         município selecionado no menu suspenso. Os pontos na 
                         área azul representam os municípios onde a intervenção 
@@ -1101,12 +1374,12 @@ server <- function(input, output, session) {
                    and the rectangle shows the value for the median and 
                    interquartile range. The sets of lines show the data in 10
                    day intervals (from 10 to 70 days) from the day at which an 
-                   incidence of 1 case per 1000 people was reported in a 
+                   incidence of 1 case per 10,000 people was reported in a 
                    municipality. </br>
                    </br> For example, the upper left plot (shown below) shows 
                         the association between area population density and 
                         incidence. The larger the gap between the bars the 
-                        larger the difference in the Covid-19 epidemic between
+                        larger the difference in the COVID-19 epidemic between
                         high and low population density areas. More detailed 
                         analysis can be conducted by downloading the data from 
                         the data download tab.  </u>"),
@@ -1125,12 +1398,12 @@ server <- function(input, output, session) {
                         do intervalo mediano e interquartil. Os conjuntos de 
                         linhas mostram os dados em intervalos de 10 dias (de 10 
                         a 70 dias) a partir do dia em que uma incidência de 1 
-                        caso por 1.000 pessoas foi relatada em um município.
+                        caso por 10.000 pessoas foi relatada em um município.
                         </br> </br>
                         Por exemplo, o gráfico abaixo mostra a associação 
                         entre a densidade populacional da área e a incidência. 
                         Quanto maior a diferença entre as barras, maior a 
-                        diferença na epidemia de Covid-19 entre áreas de alta e
+                        diferença na epidemia de COVID-19 entre áreas de alta e
                         baixa densidade populacional. Uma análise mais detalhada 
                         pode ser realizada baixando os dados na guia de download
                         de dados. </u>")
@@ -1190,7 +1463,7 @@ server <- function(input, output, session) {
                    </br><b> y - </b> The latitude of the municiplaity in decimal
                    degrees
                    </br><b> days_since_start - </b> The number of days since the
-                   age standardised rate was greater than 1 case per 1,000 
+                   age standardised incidene was greater than 1 case per 10,000 
                    residents
                     </br></br>
                     The following variables are indicators which are coded 1 if 
@@ -1267,7 +1540,7 @@ server <- function(input, output, session) {
                         decimais
                         </br><b> y </b>- latitude do município em graus decimais.
                         </br><b> days_since_start </b> - O número de dias desde 
-                        a taxa padronizada de idade superior a 1 caso por 1.000 
+                        a taxa padronizada de idade superior a 1 caso por 10.000 
                         residentes
                         </br></br>
                         As seguintes variáveis são indicadores codificados em 1 
@@ -1293,6 +1566,23 @@ server <- function(input, output, session) {
                         fechamento da escola
                         </br><b> workplace_closure_start </b> - Fechos de
                         trabalho iniciados </u>")
+        )
+    })
+    
+    output$text14 <- renderUI({
+        switch(input$language, "EN"=
+                   HTML("This app was developed as part of the CADDE 
+                        <a href = 'https://www.caddecentre.org',> project </a>
+                        This project was supported through a São Paulo Research 
+                        Foundation (FAPESP) and Medical Research Council CADDE 
+                        partnership award (MR/S0195/1 and FAPESP 18/14389-0). </u>"),
+               "PR"=
+                   HTML("Este site foi desenvolvido como parte do projeto 
+                         <a href = 'https://www.caddecentre.org',> CADDE </a>.
+                         Este projeto foi apoiado por la Fundação de Amparo 
+                         à Pesquisa do Estado de São Paulo (FAPESP) e 
+                         un premio de parceria entre CADDE e Conselho de
+                         Pesquisa Médica (MR/S0195/1 e FAPESP 18/14389-0) </u>")
         )
     })
     
@@ -1396,7 +1686,8 @@ server <- function(input, output, session) {
                              radius = 5, 
                              weight=1,
                              popup= ~paste0("<b>", Area, "</b>", 
-                                            "<br/>",                                            popup, ": ",
+                                            "<br/>",                   
+                                            popup, ": ",
                                             round(outcome, 1),
                                             "<br/>",
                                             "Date: ",
@@ -1517,35 +1808,35 @@ server <- function(input, output, session) {
         
         if(input$outcome_select2=="Hospital bed occupancy / Ocupação de leitos hospitalares" &
            input$language=="EN") {
-            my_label <- "Hospital bed occupancy \n per 1,000 residents (log scale)"
+            my_label <- "Hospital bed occupancy \n per 10,000 residents (log scale)"
         }
         if(input$outcome_select2=="Hospital bed occupancy / Ocupação de leitos hospitalares" &
            input$language=="PR") {
-            my_label <- "Ocupação de leitos hospitalares por 1.000 \n residentes (escala logarítmica)"
+            my_label <- "Ocupação de leitos hospitalares por 10.000 \n residentes (escala logarítmica)"
         }
         if(input$outcome_select2=="ITU bed occupancy / Ocupação de leitos de UTI" &
            input$language=="EN") {
-            my_label <- "ITU bed occupancy per 1,000 residents \n (log scale)"
+            my_label <- "ITU bed occupancy per 10,000 residents \n (log scale)"
         }
         if(input$outcome_select2=="ITU bed occupancy / Ocupação de leitos de UTI" &
            input$language=="PR") {
-            my_label <- "Ocupação de leitos em UTI por 1.000 \n residentes (escala logarítmica)"
+            my_label <- "Ocupação de leitos em UTI por 10.000 \n residentes (escala logarítmica)"
         }
         if(input$outcome_select2=="Cumulative death incidence / Incidência acumulada de óbitos" &
            input$language=="EN") {
-            my_label <- "Standardised death incidence per 1,000 \n residents (log scale)"
+            my_label <- "Standardised death incidence per 10,000 \n residents (log scale)"
         }
         if(input$outcome_select2=="Cumulative death incidence / Incidência acumulada de óbitos" &
            input$language=="PR") {
-            my_label <- "Incidência padronizada de óbitos por 1.000 \n residentes (escala logarítmica)"
+            my_label <- "Incidência padronizada de óbitos por 10.000 \n residentes (escala logarítmica)"
         }
         if(input$outcome_select2=="Cumulative case incidence / Incidência acumulada de casos" &
            input$language=="EN"){
-            my_label <- "Standardised case incidence per 1,000 \n residents (log scale)"
+            my_label <- "Standardised case incidence per 10,000 \n residents (log scale)"
         }
         if(input$outcome_select2=="Cumulative case incidence / Incidência acumulada de casos" &
            input$language=="PR"){
-            my_label <- "Incidência padronizada de casos por 1.000 \n residentes (escala logarítmica)"
+            my_label <- "Incidência padronizada de casos por 10.000 \n residentes (escala logarítmica)"
         }
         
         
@@ -1592,7 +1883,7 @@ server <- function(input, output, session) {
                                           # text = paste0(input$outcome_select2,
                                           #               ": ",
                                           #               round(outcome,2)))
-                                          )) +
+        )) +
             theme_minimal() +
             xlab(area_db1()$of2) +
             theme(legend.text=element_text(size=16),
@@ -1614,9 +1905,9 @@ server <- function(input, output, session) {
             theme(plot.title = element_text(hjust = 0.5)) +
             scale_y_continuous(trans='log10') +
             geom_label(data = area_db1()$of1[area_db1()$of1$Area == input$area_select, ] %>% 
-                          filter(date_end == last(as.Date(date_end))), 
-                      aes(label = Area), 
-                      color = "#ef6f6a")
+                           filter(date_end == last(as.Date(date_end))), 
+                       aes(label = Area), 
+                       color = "#ef6f6a")
         g1
     })
     
@@ -1724,10 +2015,10 @@ server <- function(input, output, session) {
     
     y_label3 <- reactive({
         if(input$language=="EN"){
-            return("Days since start of the outbreak (>10 cases)")
+            return("Days since start of the outbreak (incidence above 1 case per 10,000 residents)")
         }
         if(input$language=="PR"){
-            return("Dias desde o início do surto (> 10 casos)")
+            return("Dias desde o início do surto (incidência acima de 1 caso por 10.000 residentes)")
         }
     })
     
@@ -1873,7 +2164,7 @@ server <- function(input, output, session) {
                       axis.title.y = element_text(size=12)) +
                 theme(strip.text.x = element_text(size = 14)) +
                 labs(x = "Dias desde o início",
-                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                     y = "Incidência cumulativa por 10.000 pessoas \n(escala logarítmica, outliers omitidos)") +
                 guides(fill=guide_legend(title="Densidade populacional da área\n (Quartiles)"))
             g4 <- Trends_plot_list[[myRegion]][["SDI"]] +
                 theme_minimal() +
@@ -1885,7 +2176,7 @@ server <- function(input, output, session) {
                       axis.title.y = element_text(size=12)) +
                 theme(strip.text.x = element_text(size = 14)) +
                 labs(x = "Dias desde o início",
-                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                     y = "Incidência cumulativa por 10.000 pessoas \n(escala logarítmica, outliers omitidos)") +
                 guides(fill=guide_legend(title="Área Sociodemográfica\n index (Quartiles)"))
             
             g5 <- Trends_plot_list[[myRegion]][["Sewerage"]] +
@@ -1898,7 +2189,7 @@ server <- function(input, output, session) {
                       axis.title.y = element_text(size=12)) +
                 theme(strip.text.x = element_text(size = 14)) +
                 labs(x = "Dias desde o início",
-                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                     y = "Incidência cumulativa por 10.000 pessoas \n(escala logarítmica, outliers omitidos)") +
                 guides(fill=guide_legend(title="Proporção de famílias \ncom água encanada (Quartiles)"))
             
             g6 <- Trends_plot_list[[myRegion]][["Travel"]] +
@@ -1911,7 +2202,7 @@ server <- function(input, output, session) {
                       axis.title.y = element_text(size=12)) +
                 theme(strip.text.x = element_text(size = 14)) +
                 labs(x = "Dias desde o início",
-                     y = "Incidência cumulativa por 1.000 pessoas \n(escala logarítmica, outliers omitidos)") +
+                     y = "Incidência cumulativa por 10.000 pessoas \n(escala logarítmica, outliers omitidos)") +
                 guides(fill=guide_legend(title="Proporção de famílias \nconectadas à rede de esgotos\n(Quartiles)"))
         }
         
@@ -1923,6 +2214,142 @@ server <- function(input, output, session) {
         
     })
     
+    data_rt <- reactive({
+        
+        plot_data <- all_plot_data[ which(((all_plot_data$city_state==input$region_select_rt1) | 
+                                               (all_plot_data$city_state==input$region_select_rt2) | 
+                                               (all_plot_data$city_state==input$region_select_rt3) | 
+                                               (all_plot_data$city_state==input$region_select_rt4)) & 
+                                              (all_plot_data$Date>=format(as.Date(cut_off_date), 
+                                                                          "%Y-%m-%d"))) ,]
+        plot_title     <-  "Estimated Rt from April 1st 2020 with 95%CI"
+        plot_sub_title <- "Mean Serial Interval = 2.9 days  - Plotting 90 days of data up to 14 days ago to account for reporting delays"
+        
+        ## Add ranges to data
+        ## Set plot ranges
+        ## leave this in case we decide to include ranges for complete and incomplete data 
+        xlim2 <- plot_data$Date[nrow(plot_data) - 10]
+        
+        ### Plot range of estimates for Rt
+        plot_data$Municipality <- plot_data$city_state
+        
+        ### Selecting y range 
+        tmp_dat <- plot_data %>% 
+            group_by(city_state) %>% 
+            arrange(desc(Rtotalhat)) %>% 
+            slice(1) %>% 
+            ungroup()
+        ymax_lim <- min(tmp_dat$Rtotalhat) + 0.1
+        
+        tmp_dat <- plot_data %>% 
+            group_by(city_state) %>% 
+            arrange(Rtotalhat) %>% 
+            slice(1) %>% 
+            ungroup()
+        ymin_lim <- min(tmp_dat$Rtotalhat) - 0.1
+        
+        ymax_lim = 1.8
+        ymin_lim = 0.5
+        xmax_lim = max(plot_data$Date) 
+        xmin_lim = xmax_lim - 90
+        
+        
+        db_out <- list(of1=plot_data,
+                       of2=plot_title,
+                       of3=plot_sub_title,
+                       of4=xlim2,
+                       of5=ymax_lim,
+                       of6=ymin_lim,
+                       of7=xmax_lim,
+                       of8=xmin_lim)
+        
+    }) 
+    
+    # Rt tab
+    output$p_rt <- renderPlot({
+        
+        g1 <-  ggplot(data=data_rt()$of1, 
+                        aes(x = Date, y = Rtotalhat, 
+                            color=Municipality, 
+                            group=Municipality))+ 
+                     geom_line() +
+                     geom_ribbon(aes(ymin = Lower_CI, 
+                                     ymax = Upper_CI,
+                                     fill = Municipality),
+                                 linetype="blank",alpha=0.1) + 
+                     xlab("Date") +
+                     ylab("Rt") +
+                     ggtitle(label    = data_rt()$of2, 
+                             subtitle = data_rt()$of3) +
+                     geom_hline(yintercept=1.0, linetype="solid") +
+                     scale_x_date(date_breaks = "1 week", date_labels="%d-%b") +
+                     coord_cartesian(ylim = c(data_rt()$of6, data_rt()$of5),
+                                     xlim = c(data_rt()$of8, data_rt()$of7)) +
+                     theme_minimal()
+        g1
+    })
+    
+    
+    
+    
+    # Tab 4
+    output$map2 <- renderLeaflet({
+        
+        
+        my_bks <- seq(0,1, by=0.2)
+        
+        pal <- colorNumeric("YlOrBr", NULL)
+        
+        leaflet(data = peakSF,
+                options = leafletOptions(zoomControl = FALSE)) %>%
+            htmlwidgets::onRender("function(el, x) {
+        L.control.zoom({ position: 'bottomright' }).addTo(this)}") %>% 
+            addProviderTiles(providers$Stamen.TonerLines,
+                             options = providerTileOptions(opacity = 0.35)) %>%
+            addProviderTiles(providers$Stamen.TonerLabels) %>%
+            addCircleMarkers(col = ~pal(PredictProb), 
+                             opacity = 0.9,
+                             radius = 5, 
+                             weight=1,
+                             popup= ~paste0("<b>", Area, "</b>", 
+                                            "<br/>", " Predicted probability: ",
+                                            round(PredictProb, 1),
+                                            "<br/>")) %>%
+            # addTiles() %>%
+            addLegend("bottomright",
+                      pal = pal,
+                      values = ~log1p(PredictProb),
+                      labFormat = labelFormat(
+                          transform=function(x) round(expm1(x),1)),
+                      opacity = 0.7, 
+                      title = "Predicted probabilities")
+        
+    })
+    
+    auc_data <- reactive({
+        AUCplot +
+            theme_minimal() +
+            theme(legend.text=element_text(size=12),
+                  legend.title=element_text(size=12)) +
+            theme(axis.text.x = element_text(size=12),
+                  axis.text.y = element_text(size=12),
+                  axis.title.x = element_text(size=14),
+                  axis.title.y = element_text(size=14)) +
+            theme(strip.text.x = element_text(size = 14)) +
+            xlab("False positive fraction") +
+            ylab("True positive fraction") +
+            annotate("text", x=0.65, y=0.275,
+                     label=paste0("The area under this ROC curve is ",
+                                  round(AUCDF[1, "AUC"], 3)))
+        
+    })
+    
+    output$aucplot <- renderPlot({
+        auc_data()
+        # ggplot(dfr,  aes(x, y)) +
+        #     geom_point()
+        # 
+    })
     
     
     output$rows_label = renderText({
@@ -1983,3 +2410,4 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui, server)
+
